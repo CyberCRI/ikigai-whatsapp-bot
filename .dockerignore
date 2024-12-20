@@ -1,0 +1,14 @@
+k8s/
+Dockerfile
+docker-compose.yml
+.gitignore
+.git/
+.idea/
+README.md
+sops/
+.dockerignore
+.github
+.gitmodules
+.profile
+.sops.yaml
+.venv
