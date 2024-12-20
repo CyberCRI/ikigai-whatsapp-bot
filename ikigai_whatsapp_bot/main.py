@@ -1,11 +1,10 @@
-from typing import Dict
-
 from fastapi import FastAPI
+from pywa_async import filters, WhatsApp
+from pywa_async.types import CallbackButton, Message
+
 from __version__ import __version__
-
-from models import WhatsappMessage, WhatsappResponse
-from clients import IkigaiAPIClient, WhatsappClient
-
+from client import IkigaiAPIClient
+from settings import settings
 
 app = FastAPI(
     title="Ikigai Whatsapp bot",
@@ -14,24 +13,54 @@ app = FastAPI(
 )
 
 
-@app.get("/test")
-async def test() -> Dict[str, str]:
-    return {"test": "Hello, World!"}, 200
+whatsapp = WhatsApp(
+    phone_id=settings.WHATSAPP_PHONE_NUMBER_ID,
+    token=settings.WHATSAPP_ACCESS_TOKEN,
+    server=app,
+    callback_url=settings.WHATSAPP_BOT_HOST,
+    verify_token=settings.WHATSAPP_VERIFY_TOKEN,
+    app_id=settings.WHATSAPP_APP_ID,
+    app_secret=settings.WHATSAPP_APP_SECRET,
+)
 
 
-@app.post("/message")
-async def message(message: WhatsappMessage) -> Dict[str, str]:
-    try:
-        api_client = IkigaiAPIClient()
-        whatsapp_client = WhatsappClient()
-        response = await api_client.post_message(message)
-        message = WhatsappResponse(...)
-        await whatsapp_client.send_message(message)
-        return {"status": "ok"}, 200
-    except Exception as e:
-        return {"status": "error", "message": str(e)}, 400
+@whatsapp.on_message()
+async def on_message(client: WhatsApp, message: Message):
+    """
+    Handle incoming messages from WhatsApp.
+
+    Args:
+        client (WhatsApp): The WhatsApp client.
+        message (Message): The incoming message.
+
+    Returns:
+        dict: The response and status
+    """
+    ikigai_client = IkigaiAPIClient()
+    response = await ikigai_client.post_message(message)
+    await client.send_message(message.from_user.wa_id, response["message"])
+    return {"status": "ok"}, 200
+
+
+@whatsapp.on_callback_button(filters.startswith("id"))
+def on_button_click(client: WhatsApp, button: CallbackButton):
+    """
+    Handle button clicks from WhatsApp.
+
+    Args:
+        client (WhatsApp): The WhatsApp client.
+        button (CallbackButton): The button clicked.
+
+    Returns:
+        dict: The response and status
+    """
+    ikigai_client = IkigaiAPIClient()
+    response = ikigai_client.post_message(button)
+    client.send_message(button.from_user.wa_id, response["message"])
+    return {"status": "ok"}, 200
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+
+    uvicorn.run(whatsapp, host="0.0.0.0", port=8080)

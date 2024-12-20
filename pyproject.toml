@@ -11,7 +11,7 @@ httpx = "^0.28.1"
 pydantic = "^2.10.4"
 pydantic-settings = "^2.7.0"
 uvicorn = "^0.34.0"
-fastapi = "^0.115.6"
+pywa = {version ="^2.4.0", extras=["fastapi"]}
 
 
 [tool.poetry.group.dev.dependencies]

@@ -1,11 +1,14 @@
 from typing import Any, Dict
+
 import httpx
+from pywa_async.types import Message
+
 from settings import settings
 
 
-class BaseClient:
+class IkigaiAPIClient:
     """
-    Base for httpx client for interacting.
+    Client for interacting with the Ikigai API.
 
     Args:
         base_url (str): The base URL of the Ikigai API.
@@ -16,15 +19,13 @@ class BaseClient:
 
     def __init__(
         self,
-        base_url: str,
-        token: str,
+        base_url: str = settings.IKIGAI_API_URL,
+        token: str = settings.IKGAI_API_TOKEN,
         verify_ssl: bool = settings.HTTPX_CLIENT_VERIFY_SSL,
         timeout: int = settings.HTTPX_CLIENT_DEFAULT_TIMEOUT,
     ):
-        headers = {
-            "Content-type": "application/json",
-            "Authorization": f"Bearer {token}"
-        }
+        """Initialize the IkigaiAPIClient."""
+        headers = {"Content-type": "application/json", "Authorization": f"Bearer {token}"}
         self.session = httpx.AsyncClient(headers=headers, verify=verify_ssl, timeout=timeout)
         self.base_url = base_url
 
@@ -53,3 +54,26 @@ class BaseClient:
     async def delete(self, path: str, **kwargs):
         """Make a DELETE request to the API."""
         return await self._request("DELETE", path, **kwargs)
+
+    async def post_message(self, message: Message) -> httpx.Response:
+        """
+        Format and post a WhatsappMessage object to the API.
+
+        Args:
+            message (WhatsappMessage): The message to post.
+
+        Returns:
+            dict: The response from the API.
+        """
+        payload = {
+            "id": message.id,
+            "content": message.text,
+            "author": {
+                "id": message.from_user.wa_id,
+                "username": message.from_user.name,
+            },
+            "channel": None,
+            "created_at": str(message.timestamp),
+            "edited_at": None,
+        }
+        return await self.post("message", payload=payload)
