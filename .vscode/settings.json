@@ -1,0 +1,3 @@
+{
+    "python.analysis.extraPaths": ["./ikigai_whatsapp_bot"],
+}
