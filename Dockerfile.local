@@ -1,8 +1,8 @@
 FROM python:3.13-slim AS builder
 
-ARG EXPORT_FLAG=--dev
+ARG EXPORT_FLAG="--with dev"
 
-RUN pip install --upgrade pip poetry
+RUN pip install --upgrade pip poetry poetry-plugin-export
 
 COPY pyproject.toml poetry.lock ./
 
@@ -21,7 +21,6 @@ RUN groupadd -g 10000 app && \
   chown app:app /app && \
   apt-get update && \
   apt-get install nano && \
-  apt install -y gcc libpq-dev git gettext make postgresql && \
   pip install --upgrade pip
 
 COPY --from=builder /tmp/requirements.txt .
