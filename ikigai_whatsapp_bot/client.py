@@ -3,6 +3,7 @@ from typing import Any, Dict
 import httpx
 from pywa_async.types import Message
 
+from data_types import ButtonData
 from settings import settings
 
 
@@ -66,14 +67,38 @@ class IkigaiAPIClient:
             dict: The response from the API.
         """
         payload = {
-            "id": message.id,
+            "id": 10000000,  # message.id
             "content": message.text,
             "author": {
-                "id": message.from_user.wa_id,
+                "id": 5000,  # message.from_user.wa_id,
                 "username": message.from_user.name,
+                "discriminator": "0",
+                "avatar": {"url": ""},
             },
-            "channel": None,
-            "created_at": str(message.timestamp),
+            "channel": {
+                "id": 5000,  # message.from_user.wa_id,
+                "name": "DM",
+                "type": 1,
+                "guild": None,
+                "used_for": None,
+            },
+            "created_at": str(message.timestamp.isoformat()),
             "edited_at": None,
         }
         return await self.post("message", payload=payload)
+    
+    async def post_interaction(self, callback_data: ButtonData) -> httpx.Response:
+        """
+        Format and post a ButtonData object to the API.
+
+        Args:
+            callback_data (ButtonData): The data to post.
+
+        Returns:
+            dict: The response from the API.
+        """
+        payload = {
+            "user_id": callback_data.user_id,
+            "button_id": callback_data.button_id,
+        }
+        return await self.post("interaction", payload=payload)
