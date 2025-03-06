@@ -36,8 +36,10 @@ class File:
 
 @dataclass(frozen=True, slots=True)
 class APIResponseElement:
-    type: MessageType
-    data: Union[Message, List[Button], Image, File]
+    message: Message
+    images: List[Image]
+    files: List[File]
+    buttons: List[Button]
 
 
 @dataclass(frozen=True, slots=True)
