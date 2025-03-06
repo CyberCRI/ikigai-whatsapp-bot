@@ -1,5 +1,4 @@
 import logging
-from websocket import create_connection
 
 from fastapi import FastAPI
 from pywa_async import WhatsApp
@@ -33,7 +32,8 @@ whatsapp = WhatsApp(
 
 socket_client = AsyncIkigaiWebSocketClient(
     whatsapp_client=whatsapp,
-    websocket_url=settings.IKIGAI_WEBSOCKET_URL
+    websocket_url=settings.IKIGAI_WEBSOCKET_URL,
+    client_name=settings.IKIGAI_WEBSOCKET_CLIENT_NAME
 )
 
 

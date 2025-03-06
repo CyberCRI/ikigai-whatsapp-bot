@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import httpx
-import websocket
 import websockets
 import threading
 from typing import Any, Dict, Tuple
@@ -22,13 +21,13 @@ class IkigaiClient:
             "id": 999999999,  # message.id
             "content": message.text,
             "author": {
-                "id": 5000,  # message.from_user.wa_id,
+                "id": message.from_user.wa_id,
                 "username": message.from_user.name,
                 "discriminator": "0",
                 "avatar": {"url": ""},
             },
             "channel": {
-                "id": 5000,  # message.from_user.wa_id,
+                "id": message.from_user.wa_id,
                 "name": message.from_user.wa_id,
                 "type": 1,
                 "guild": None,
@@ -124,52 +123,55 @@ class IkigaiAPIClient(IkigaiClient):
 
 class AsyncIkigaiWebSocketClient(IkigaiClient):
 
-    def __init__(self, whatsapp_client: WhatsApp, websocket_url: str = settings.IKIGAI_WEBSOCKET_URL):
+    def __init__(
+        self,
+        whatsapp_client: WhatsApp,
+        websocket_url: str = settings.IKIGAI_WEBSOCKET_URL,
+        client_name: str = settings.IKIGAI_WEBSOCKET_CLIENT_NAME,
+        connection_timeout: int = 10,
+    ):
         self.whatsapp_client = whatsapp_client
-        self.websocket_url = f"{websocket_url}/websocket"
+        self.websocket_url = websocket_url
+        self.client_name = client_name
+        self.connection_timeout = connection_timeout
         self.connections: Dict[str, websockets.connect] = {}
 
     async def get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
-        logger.error(f"DEBUG SAM : get_or_create_connection: {self.connections=}")
         if user_id not in self.connections:
-            connection = await websockets.connect(self.websocket_url)
+            connection = await websockets.connect(
+               f"{self.websocket_url}/websocket/client/{self.client_name}/user/{user_id}",
+               close_timeout=self.connection_timeout
+            )
             self.connections[user_id] = connection
             asyncio.create_task(self.listen_to_connection(connection, user_id))
             return connection, True
         return self.connections[user_id], False
     
     async def on_message(self, connection: websockets.connect, message: str):
-        logger.error(f"DEBUG SAM : on_message: {self.connections=}")
         message = json.loads(message)
         message_text = message.get("message", "")
         message_to = message.get("to")
-        logger.error(f"Received message: {message_text}")
         await self.whatsapp_client.send_message(message_to, message_text)
 
     async def on_error(self, connection: websockets.connect, user_id: str, error: str):
-        logger.error(f"DEBUG SAM : on_error: {self.connections=}")
-        logger.error(f"Socket connection error: {error}")
+        logger.error(f"Error on websocket connection for user {user_id}: {error}")
         self.connections.pop(user_id, None)
 
     async def on_close(self, connection: websockets.connect, user_id: str):
-        logger.error(f"DEBUG SAM : on_close: {self.connections=}")
+        logger.info(f"Closed websocket connection for user {user_id}")
         self.connections.pop(user_id, None)
-        logger.error(f"Closed socket connection for user: {user_id}")
 
-    async def on_open(self, connection: websockets.connect):
-        logger.error(f"DEBUG SAM : on_open: {self.connections=}")
-        logger.error("Opened socket connection")
+    async def on_open(self, connection: websockets.connect, user_id: str):
+        logger.info(f"Opened websocket connection for user {user_id}")
 
     async def send_message(self, message: Message):
-        logger.error(f"DEBUG SAM : send_message: {self.connections=}")
-        logger.error("Sending message: %s", message)
         connection, _ = await self.get_or_create_connection(message.from_user.wa_id)
         json_message = json.dumps(self.serialize_message(message))
         await connection.send(json_message)
 
     async def listen_to_connection(self, connection: websockets.connect, user_id: str):
         try:
-            await self.on_open(connection)
+            await self.on_open(connection, user_id)
             async for message in connection:
                 await self.on_message(connection, message)
         except websockets.ConnectionClosed as e:
