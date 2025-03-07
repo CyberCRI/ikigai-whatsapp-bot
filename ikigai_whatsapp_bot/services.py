@@ -1,10 +1,11 @@
 import asyncio
 import json
 import logging
+from abc import ABC
+from typing import Any, Dict, Tuple
+
 import httpx
 import websockets
-import threading
-from typing import Any, Dict, Tuple
 from pywa_async import WhatsApp
 from pywa_async.types import Message
 
@@ -14,7 +15,7 @@ from settings import settings
 logger = logging.getLogger(__name__)
 
 
-class IkigaiClient:
+class BaseService(ABC):
     @classmethod
     def serialize_message(cls, message: Message) -> Dict[str, Any]:
         return {
@@ -36,7 +37,7 @@ class IkigaiClient:
             "created_at": str(message.timestamp.isoformat()),
             "edited_at": None,
         }
-    
+
     @classmethod
     def serialize_interaction(cls, callback_data: ButtonData) -> Dict[str, Any]:
         return {
@@ -45,7 +46,7 @@ class IkigaiClient:
         }
 
 
-class IkigaiAPIClient(IkigaiClient):
+class APIService(BaseService):
     """
     Client for interacting with the Ikigai API.
 
@@ -63,7 +64,7 @@ class IkigaiAPIClient(IkigaiClient):
         verify_ssl: bool = settings.HTTPX_CLIENT_VERIFY_SSL,
         timeout: int = settings.HTTPX_CLIENT_DEFAULT_TIMEOUT,
     ):
-        """Initialize the IkigaiAPIClient."""
+        """Initialize the APIClient."""
         headers = {"Content-type": "application/json", "Authorization": f"Bearer {token}"}
         self.session = httpx.AsyncClient(headers=headers, verify=verify_ssl, timeout=timeout)
         self.base_url = base_url
@@ -105,7 +106,7 @@ class IkigaiAPIClient(IkigaiClient):
             dict: The response from the API.
         """
         return await self.post("message", payload=self.serialize_message(message))
-    
+
     async def post_interaction(self, callback_data: ButtonData) -> httpx.Response:
         """
         Format and post a ButtonData object to the API.
@@ -116,12 +117,10 @@ class IkigaiAPIClient(IkigaiClient):
         Returns:
             dict: The response from the API.
         """
-        return await self.post(
-            "interaction", payload=self.serialize_interaction(callback_data)
-        )
+        return await self.post("interaction", payload=self.serialize_interaction(callback_data))
 
 
-class AsyncIkigaiWebSocketClient(IkigaiClient):
+class WebSocketService(BaseService):
 
     def __init__(
         self,
@@ -138,16 +137,17 @@ class AsyncIkigaiWebSocketClient(IkigaiClient):
 
     async def get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
         if user_id not in self.connections:
+            logger.error(f"websocket url: {self.websocket_url}/websocket/client/{self.client_name}/user/{user_id}")
             connection = await websockets.connect(
-               f"{self.websocket_url}/websocket/client/{self.client_name}/user/{user_id}",
-               close_timeout=self.connection_timeout
+                f"{self.websocket_url}/websocket/client/{self.client_name}/user/{user_id}",
+                close_timeout=self.connection_timeout,
             )
             self.connections[user_id] = connection
             asyncio.create_task(self.listen_to_connection(connection, user_id))
             return connection, True
         return self.connections[user_id], False
-    
-    async def on_message(self, connection: websockets.connect, message: str):
+
+    async def on_message(self, connection: websockets.connect, message: Dict[str, Any]):
         message = json.loads(message)
         message_text = message.get("message", "")
         message_to = message.get("to")

@@ -1,6 +1,7 @@
-from typing import List, Union
-from pywa.types import CallbackData
 from dataclasses import dataclass
+from typing import List, Union
+
+from pywa.types import CallbackData
 
 from enums import MessageType
 
@@ -9,6 +10,7 @@ from enums import MessageType
 class ButtonData(CallbackData):
     user_id: int
     button_id: str
+
 
 @dataclass(frozen=True, slots=True)
 class Message:

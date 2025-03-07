@@ -2,12 +2,10 @@ import logging
 
 from fastapi import FastAPI
 from pywa_async import WhatsApp
-from pywa_async.types import Button, CallbackButton, Message, User
+from pywa_async.types import Message
 
 from __version__ import __version__
-from client import IkigaiAPIClient, AsyncIkigaiWebSocketClient
-from data_types import ButtonData, APIResponse
-from enums import MessageType
+from services import WebSocketService
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -30,72 +28,16 @@ whatsapp = WhatsApp(
     app_secret=settings.WHATSAPP_APP_SECRET,
 )
 
-socket_client = AsyncIkigaiWebSocketClient(
+websocket_service = WebSocketService(
     whatsapp_client=whatsapp,
     websocket_url=settings.IKIGAI_WEBSOCKET_URL,
-    client_name=settings.IKIGAI_WEBSOCKET_CLIENT_NAME
+    client_name=settings.IKIGAI_WEBSOCKET_CLIENT_NAME,
 )
-
-
-# @whatsapp.on_message
-# async def on_message_backup(client: WhatsApp, message: Message):
-#     """
-#     Handle incoming messages from WhatsApp.
-
-#     Args:
-#         client (WhatsApp): The WhatsApp client.
-#         message (Message): The incoming message.
-#     """
-#     ikigai_client = IkigaiAPIClient()
-#     try:
-#         response = await ikigai_client.post_message(message)
-#         logger.info("Response from Ikigai API: %s", response)
-#     except Exception as e:
-#         logger.error("Error posting message to Ikigai API: %s", e)
-
-#     buttons = [
-#         Button(
-#             title=f"Test {i}", callback_data=ButtonData(
-#                 user_id=message.from_user.wa_id,
-#                 button_id=i
-#             )
-#         )
-#         for i in range(3)
-#     ]
-#     for m in response["messages"]:
-#         await client.send_message(message.from_user.wa_id, m["content"])
-#     await client.send_message(message.from_user.wa_id, "buuuuuuuttons", buttons=buttons)
-
 
 
 @whatsapp.on_message
 async def on_message(client: WhatsApp, message: Message):
-    await socket_client.send_message(message)
-
-
-# @whatsapp.on_callback_button(factory=ButtonData)
-# async def on_user_data(client: WhatsApp,  button: CallbackButton[ButtonData]): # type: ignore
-#     """
-#     Handle incoming callback buttons from WhatsApp.
-
-#     Args:
-#         client (WhatsApp): The WhatsApp client.
-#         button (CallbackButton): The incoming callback button.
-
-#     Returns:
-#         dict: The response and status
-#     """
-#     ikigai_client = IkigaiAPIClient()
-#     try:
-#         response = await ikigai_client.post_interaction(button.data)
-#         logger.info("Response from Ikigai API: %s", response)
-#     except Exception as e:
-#         logger.error("Error posting interaction to Ikigai API: %s", e)
-#     button_data = button.data
-#     return await client.send_message(
-#         button.from_user.wa_id,
-#         f"User {button_data.user_id} clicked button {button_data.button_id}",
-#     )
+    await websocket_service.send_message(message)
 
 
 if __name__ == "__main__":
