@@ -2,9 +2,10 @@ import logging
 
 from fastapi import FastAPI
 from pywa_async import WhatsApp
-from pywa_async.types import Message
+from pywa_async.types import CallbackButton, Message
 
 from __version__ import __version__
+from data_types import ButtonData
 from services import WebSocketService
 from settings import settings
 
@@ -38,6 +39,11 @@ websocket_service = WebSocketService(
 @whatsapp.on_message
 async def on_message(client: WhatsApp, message: Message):
     await websocket_service.send_message(message)
+
+
+@whatsapp.on_callback_button
+def on_callback_button(client: WhatsApp, button: CallbackButton[ButtonData]):
+    websocket_service.send_interaction(button)
 
 
 if __name__ == "__main__":

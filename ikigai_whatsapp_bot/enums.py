@@ -4,5 +4,12 @@ from enum import Enum
 class MessageType(Enum):
     TEXT = "text"
     IMAGE = "image"
-    BUTTON = "button"
-    FILE = "file"
+
+
+class Events(Enum):
+    """The events that are handled by the server."""
+
+    MESSAGE = "message"
+    BUTTON_CLICK = "button_click"
+    MEMBER_JOIN = "member_join"
+    MEMBER_UPDATE = "member_update"

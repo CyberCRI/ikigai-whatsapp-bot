@@ -2,14 +2,15 @@ import asyncio
 import json
 import logging
 from abc import ABC
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import websockets
 from pywa_async import WhatsApp
-from pywa_async.types import Message
+from pywa_async.types import Button, Message
 
 from data_types import ButtonData
+from enums import Events, MessageType
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -19,30 +20,36 @@ class BaseService(ABC):
     @classmethod
     def serialize_message(cls, message: Message) -> Dict[str, Any]:
         return {
-            "id": 999999999,  # message.id
-            "content": message.text,
-            "author": {
-                "id": message.from_user.wa_id,
-                "username": message.from_user.name,
-                "discriminator": "0",
-                "avatar": {"url": ""},
+            "action": Events.MESSAGE.value,
+            "content": {
+                "id": 999999999,  # message.id
+                "content": message.text,
+                "author": {
+                    "id": message.from_user.wa_id,
+                    "username": message.from_user.name,
+                    "discriminator": "0",
+                    "avatar": {"url": ""},
+                },
+                "channel": {
+                    "id": message.from_user.wa_id,
+                    "name": message.from_user.wa_id,
+                    "type": 1,
+                    "guild": None,
+                    "used_for": None,
+                },
+                "created_at": str(message.timestamp.isoformat()),
+                "edited_at": None,
             },
-            "channel": {
-                "id": message.from_user.wa_id,
-                "name": message.from_user.wa_id,
-                "type": 1,
-                "guild": None,
-                "used_for": None,
-            },
-            "created_at": str(message.timestamp.isoformat()),
-            "edited_at": None,
         }
 
     @classmethod
     def serialize_interaction(cls, callback_data: ButtonData) -> Dict[str, Any]:
         return {
-            "user_id": callback_data.user_id,
-            "button_id": callback_data.button_id,
+            "action": Events.BUTTON_CLICK.value,
+            "content": {
+                "user_id": callback_data.user_id,
+                "button_id": callback_data.button_id,
+            },
         }
 
 
@@ -137,7 +144,6 @@ class WebSocketService(BaseService):
 
     async def get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
         if user_id not in self.connections:
-            logger.error(f"websocket url: {self.websocket_url}/websocket/client/{self.client_name}/user/{user_id}")
             connection = await websockets.connect(
                 f"{self.websocket_url}/websocket/client/{self.client_name}/user/{user_id}",
                 close_timeout=self.connection_timeout,
@@ -147,11 +153,33 @@ class WebSocketService(BaseService):
             return connection, True
         return self.connections[user_id], False
 
+    async def _send_text(
+        self, user_id: str, text: str, buttons: Optional[List[Dict[str, str]]] = None
+    ):
+        await self.whatsapp_client.send_message(user_id, text, buttons=buttons)
+
+    async def _send_image(
+        self, user_id: str, image: str, buttons: Optional[List[Dict[str, str]]] = None
+    ):
+        await self.whatsapp_client.send_image(user_id, image, buttons=buttons)
+
     async def on_message(self, connection: websockets.connect, message: Dict[str, Any]):
         message = json.loads(message)
-        message_text = message.get("message", "")
-        message_to = message.get("to")
-        await self.whatsapp_client.send_message(message_to, message_text)
+        recipient = message.get("recipient")
+        content = message.get("content", "")
+        message_type = message.get("type", MessageType.TEXT.value)
+        buttons = message.get("buttons", [])
+        buttons = [
+            Button(
+                title=button["title"],
+                callback_data=ButtonData(user_id=recipient, button_id=button["id"]),
+            )
+            for button in buttons
+        ]
+        if message_type == MessageType.TEXT.value:
+            await self._send_text(recipient, content, buttons)
+        if message_type == MessageType.IMAGE.value:
+            await self._send_image(recipient, content, buttons)
 
     async def on_error(self, connection: websockets.connect, user_id: str, error: str):
         logger.error(f"Error on websocket connection for user {user_id}: {error}")
@@ -167,6 +195,11 @@ class WebSocketService(BaseService):
     async def send_message(self, message: Message):
         connection, _ = await self.get_or_create_connection(message.from_user.wa_id)
         json_message = json.dumps(self.serialize_message(message))
+        await connection.send(json_message)
+
+    async def send_interaction(self, button_data: ButtonData):
+        connection, _ = await self.get_or_create_connection(button_data.user_id)
+        json_message = json.dumps(self.serialize_interaction(button_data))
         await connection.send(json_message)
 
     async def listen_to_connection(self, connection: websockets.connect, user_id: str):
