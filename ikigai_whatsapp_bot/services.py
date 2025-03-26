@@ -7,9 +7,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 import websockets
 from pywa_async import WhatsApp
-from pywa_async.types import Button, Message
+from pywa_async.types import Button, CallbackButton, Message
 
-from data_types import ButtonData
+from schemas import ButtonData
 from enums import Events, MessageType
 from settings import settings
 
@@ -43,12 +43,26 @@ class BaseService(ABC):
         }
 
     @classmethod
-    def serialize_interaction(cls, callback_data: ButtonData) -> Dict[str, Any]:
+    def serialize_button_click(cls, callback_data: CallbackButton[ButtonData]) -> Dict[str, Any]:
         return {
             "action": Events.BUTTON_CLICK.value,
             "content": {
-                "user_id": callback_data.user_id,
-                "button_id": callback_data.button_id,
+                "id": 999999999,  # message.id
+                "user": {
+                    "id": callback_data.from_user.wa_id,
+                    "username": callback_data.from_user.name,
+                    "discriminator": "0",
+                    "avatar": {"url": ""},
+                },
+                "channel": {
+                    "id": callback_data.from_user.wa_id,
+                    "name": callback_data.from_user.wa_id,
+                    "type": 1,
+                    "guild": None,
+                    "used_for": None,
+                },
+                "custom_id": callback_data.data.custom_id,
+                "clicked": True,
             },
         }
 
@@ -114,17 +128,17 @@ class APIService(BaseService):
         """
         return await self.post("message", payload=self.serialize_message(message))
 
-    async def post_interaction(self, callback_data: ButtonData) -> httpx.Response:
+    async def post_button(self, callback_data: Button) -> httpx.Response:
         """
-        Format and post a ButtonData object to the API.
+        Format and post a Button object to the API.
 
         Args:
-            callback_data (ButtonData): The data to post.
+            callback_data (Button): The data to post.
 
         Returns:
             dict: The response from the API.
         """
-        return await self.post("interaction", payload=self.serialize_interaction(callback_data))
+        return await self.post("Button", payload=self.serialize_button_click(callback_data))
 
 
 class WebSocketService(BaseService):
@@ -171,8 +185,8 @@ class WebSocketService(BaseService):
         buttons = message.get("buttons", [])
         buttons = [
             Button(
-                title=button["title"],
-                callback_data=ButtonData(user_id=recipient, button_id=button["id"]),
+                title=button["label"],
+                callback_data=ButtonData(**button),
             )
             for button in buttons
         ]
@@ -197,9 +211,13 @@ class WebSocketService(BaseService):
         json_message = json.dumps(self.serialize_message(message))
         await connection.send(json_message)
 
-    async def send_interaction(self, button_data: ButtonData):
-        connection, _ = await self.get_or_create_connection(button_data.user_id)
-        json_message = json.dumps(self.serialize_interaction(button_data))
+    async def send_button_click(self, button_data: CallbackButton[ButtonData]):
+        logger.error(button_data)
+        logger.error(button_data.from_user.wa_id)
+        callback_data = button_data.data.custom_id
+        logger.error(callback_data)
+        connection, _ = await self.get_or_create_connection(button_data.from_user.wa_id)
+        json_message = json.dumps(self.serialize_button_click(button_data))
         await connection.send(json_message)
 
     async def listen_to_connection(self, connection: websockets.connect, user_id: str):

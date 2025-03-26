@@ -5,7 +5,7 @@ from pywa_async import WhatsApp
 from pywa_async.types import CallbackButton, Message
 
 from __version__ import __version__
-from data_types import ButtonData
+from schemas import ButtonData
 from services import WebSocketService
 from settings import settings
 
@@ -41,9 +41,9 @@ async def on_message(client: WhatsApp, message: Message):
     await websocket_service.send_message(message)
 
 
-@whatsapp.on_callback_button
-def on_callback_button(client: WhatsApp, button: CallbackButton[ButtonData]):
-    websocket_service.send_interaction(button)
+@whatsapp.on_callback_button(factory=ButtonData)
+async def on_callback_button(client: WhatsApp, button: CallbackButton[ButtonData]):
+    await websocket_service.send_button_click(button)
 
 
 if __name__ == "__main__":

@@ -13,3 +13,7 @@ class Events(Enum):
     BUTTON_CLICK = "button_click"
     MEMBER_JOIN = "member_join"
     MEMBER_UPDATE = "member_update"
+
+
+# class ButtonTypes(Enum):
+    
