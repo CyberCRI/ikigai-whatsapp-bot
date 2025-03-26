@@ -212,10 +212,7 @@ class WebSocketService(BaseService):
         await connection.send(json_message)
 
     async def send_button_click(self, button_data: CallbackButton[ButtonData]):
-        logger.error(button_data)
-        logger.error(button_data.from_user.wa_id)
         callback_data = button_data.data.custom_id
-        logger.error(callback_data)
         connection, _ = await self.get_or_create_connection(button_data.from_user.wa_id)
         json_message = json.dumps(self.serialize_button_click(button_data))
         await connection.send(json_message)
