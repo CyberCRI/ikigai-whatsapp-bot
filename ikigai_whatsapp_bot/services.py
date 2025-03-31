@@ -154,18 +154,18 @@ class WebSocketService(BaseService):
         self.websocket_url = websocket_url
         self.platform_name = platform_name
         self.connection_timeout = connection_timeout
-        self.connection: Optional[websockets.connect] = None
+        self.connections: Dict[str, websockets.connect] = {}
 
-    async def get_or_create_connection(self) -> Tuple[websockets.connect, bool]:
-        if self.connection is None:
+    async def get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
+        if user_id not in self.connections:
             connection = await websockets.connect(
-                f"{self.websocket_url}/websocket/platform/{self.platform_name}",
+                f"{self.websocket_url}/websocket/platform/{self.platform_name}/user/{user_id}",
                 close_timeout=self.connection_timeout,
             )
-            self.connection = connection
-            asyncio.create_task(self.listen_to_connection(connection))
+            self.connections[user_id] = connection
+            asyncio.create_task(self.listen_to_connection(connection, user_id))
             return connection, True
-        return self.connection, False
+        return self.connections[user_id], False
 
     async def _send_text(
         self, user_id: str, text: str, buttons: Optional[List[Dict[str, str]]] = None
@@ -180,22 +180,6 @@ class WebSocketService(BaseService):
     async def on_message(self, connection: websockets.connect, message: Dict[str, Any]):
         message = json.loads(message)
         logger.error(f"Received message: {message}")
-        result = {
-            "id": 1,
-            "receiver": {"id": 1, "username": "Samer", "platform_ids": {"whatsapp": "33601090133"}},
-            "channel": {"id": 1, "name": "Samer", "platform_ids": {"whatsapp": "33601090133"}},
-            "content": "Welcome ${user_mention}! I'm Spark, your Ikigai guide. **Click the button** and then find me in your **private messages**!",
-            "files": [],
-            "buttons": [
-                {
-                    "id": 1,
-                    "style": 3,
-                    "label": "✨ Click to start ✨",
-                    "clicked": False,
-                    "remove_after_click": True,
-                }
-            ],
-        }
         receiver = message["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
         content = message.get("content", "")
         buttons = message.get("buttons", [])
@@ -210,48 +194,48 @@ class WebSocketService(BaseService):
             await self._send_image(receiver, content, buttons)
         await self._send_text(receiver, content, buttons)
 
-    async def on_error(self, connection: websockets.connect, error: str):
-        logger.error(f"Error on websocket connection {str(connection)}: {error}")
-        self.connections = None
+    async def on_error(self, connection: websockets.connect, user_id: str, error: str):
+        logger.error(f"Error on websocket connection for user {user_id}: {error}")
+        self.connections.pop(user_id, None)
 
-    async def on_close(self, connection: websockets.connect):
-        logger.info(f"Closed websocket connection {str(connection)}")
-        self.connections = None
+    async def on_close(self, connection: websockets.connect, user_id: str):
+        logger.info(f"Closed websocket connection for user {user_id}")
+        self.connections.pop(user_id, None)
 
-    async def on_open(self, connection: websockets.connect):
-        logger.info(f"Opened websocket connection {str(connection)}")
+    async def on_open(self, connection: websockets.connect, user_id: str):
+        logger.info(f"Opened websocket connection for user {user_id}")
 
     async def send_message(self, message: Message, is_retry: bool = False):
         try:
-            connection, _ = await self.get_or_create_connection()
+            connection, _ = await self.get_or_create_connection(message.from_user.wa_id)
             json_message = json.dumps(self.serialize_message(message))
             await connection.send(json_message)
         except websockets.exceptions.ConnectionClosed as e:
             if is_retry:
                 raise e
-            self.connection = None
+            self.connections.pop(message.from_user.wa_id, None)
             await self.send_message(message, is_retry=True)
 
     async def send_button_click(
         self, button_data: CallbackButton[ButtonData], is_retry: bool = False
     ):
         try:
-            connection, _ = await self.get_or_create_connection()
+            connection, _ = await self.get_or_create_connection(button_data.from_user.wa_id)
             json_message = json.dumps(self.serialize_button_click(button_data))
             await connection.send(json_message)
         except websockets.exceptions.ConnectionClosed as e:
             if is_retry:
                 raise e
-            self.connection = None
+            self.connections.pop(button_data.from_user.wa_id, None)
             await self.send_button_click(button_data, is_retry=True)
 
-    async def listen_to_connection(self, connection: websockets.connect):
+    async def listen_to_connection(self, connection: websockets.connect, user_id: str):
         try:
-            await self.on_open(connection)
+            await self.on_open(connection, user_id)
             async for message in connection:
                 await self.on_message(connection, message)
         except websockets.ConnectionClosed as e:
-            await self.on_close(connection)
+            await self.on_close(connection, user_id)
         except Exception as e:
-            await self.on_error(connection, str(e))
-        await self.on_close(connection)
+            await self.on_error(connection, user_id, str(e))
+        await self.on_close(connection, user_id)
