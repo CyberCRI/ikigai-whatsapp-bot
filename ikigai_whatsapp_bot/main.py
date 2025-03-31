@@ -32,7 +32,7 @@ whatsapp = WhatsApp(
 websocket_service = WebSocketService(
     whatsapp_client=whatsapp,
     websocket_url=settings.IKIGAI_WEBSOCKET_URL,
-    client_name=settings.IKIGAI_WEBSOCKET_CLIENT_NAME,
+    platform_name=settings.IKIGAI_WEBSOCKET_PLATFORM_NAME,
 )
 
 

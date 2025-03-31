@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     # Ikigai API settings
     IKIGAI_API_URL: str = "http://ikigai-server:8000"
     IKIGAI_WEBSOCKET_URL: str = "ws://ikigai-server:8000"
-    IKIGAI_WEBSOCKET_CLIENT_NAME: str = "whatsapp"
+    IKIGAI_WEBSOCKET_PLATFORM_NAME: str = "whatsapp"
     IKGAI_API_TOKEN: str
 
     # HTTPX settings

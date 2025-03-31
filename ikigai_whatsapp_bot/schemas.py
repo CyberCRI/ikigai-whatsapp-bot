@@ -17,25 +17,21 @@ class Channel:
     id: str
     name: str
     type: int
-    guild: Optional[str]
-    used_for: Optional[str]
+    guild_id: Optional[str] = None
 
 
 @dataclass(frozen=True, slots=True)
 class Message:
-    id: str
     content: str
     author: User
-    channel: Channel
-    created_at: str
-    edited_at: Optional[str]
-
+    channel: None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ButtonData(CallbackData):
+    id: int
+    custom_id: str
     style: int
     label: str
-    custom_id: str
-    disabled: bool
+    clicked: bool
     remove_after_click: bool

@@ -9,8 +9,8 @@ import websockets
 from pywa_async import WhatsApp
 from pywa_async.types import Button, CallbackButton, Message
 
-from schemas import ButtonData
 from enums import Events, MessageType
+from schemas import ButtonData
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -22,23 +22,22 @@ class BaseService(ABC):
         return {
             "action": Events.MESSAGE.value,
             "content": {
-                "id": 999999999,  # message.id
                 "content": message.text,
                 "author": {
-                    "id": message.from_user.wa_id,
+                    "platform_id": {
+                        "id": message.from_user.wa_id,
+                    },
                     "username": message.from_user.name,
-                    "discriminator": "0",
-                    "avatar": {"url": ""},
+                    "guild": None,
                 },
                 "channel": {
-                    "id": message.from_user.wa_id,
-                    "name": message.from_user.wa_id,
-                    "type": 1,
+                    "platform_id": {
+                        "id": message.from_user.wa_id,
+                    },
+                    "name": message.from_user.name,
+                    "type": "dm",
                     "guild": None,
-                    "used_for": None,
                 },
-                "created_at": str(message.timestamp.isoformat()),
-                "edited_at": None,
             },
         }
 
@@ -47,22 +46,23 @@ class BaseService(ABC):
         return {
             "action": Events.BUTTON_CLICK.value,
             "content": {
-                "id": 999999999,  # message.id
+                "id": callback_data.data.id,
+                "custom_id": callback_data.data.custom_id,
                 "user": {
-                    "id": callback_data.from_user.wa_id,
+                    "platform_id": {
+                        "id": callback_data.from_user.wa_id,
+                    },
                     "username": callback_data.from_user.name,
-                    "discriminator": "0",
-                    "avatar": {"url": ""},
+                    "guild": None,
                 },
                 "channel": {
-                    "id": callback_data.from_user.wa_id,
-                    "name": callback_data.from_user.wa_id,
-                    "type": 1,
+                    "platform_id": {
+                        "id": callback_data.from_user.wa_id,
+                    },
+                    "name": callback_data.from_user.name,
+                    "type": "dm",
                     "guild": None,
-                    "used_for": None,
                 },
-                "custom_id": callback_data.data.custom_id,
-                "clicked": True,
             },
         }
 
@@ -147,25 +147,25 @@ class WebSocketService(BaseService):
         self,
         whatsapp_client: WhatsApp,
         websocket_url: str = settings.IKIGAI_WEBSOCKET_URL,
-        client_name: str = settings.IKIGAI_WEBSOCKET_CLIENT_NAME,
+        platform_name: str = settings.IKIGAI_WEBSOCKET_PLATFORM_NAME,
         connection_timeout: int = 10,
     ):
         self.whatsapp_client = whatsapp_client
         self.websocket_url = websocket_url
-        self.client_name = client_name
+        self.platform_name = platform_name
         self.connection_timeout = connection_timeout
-        self.connections: Dict[str, websockets.connect] = {}
+        self.connection: Optional[websockets.connect] = None
 
-    async def get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
-        if user_id not in self.connections:
+    async def get_or_create_connection(self) -> Tuple[websockets.connect, bool]:
+        if self.connection is None:
             connection = await websockets.connect(
-                f"{self.websocket_url}/websocket/client/{self.client_name}/user/{user_id}",
+                f"{self.websocket_url}/websocket/platform/{self.platform_name}",
                 close_timeout=self.connection_timeout,
             )
-            self.connections[user_id] = connection
-            asyncio.create_task(self.listen_to_connection(connection, user_id))
+            self.connection = connection
+            asyncio.create_task(self.listen_to_connection(connection))
             return connection, True
-        return self.connections[user_id], False
+        return self.connection, False
 
     async def _send_text(
         self, user_id: str, text: str, buttons: Optional[List[Dict[str, str]]] = None
@@ -179,9 +179,25 @@ class WebSocketService(BaseService):
 
     async def on_message(self, connection: websockets.connect, message: Dict[str, Any]):
         message = json.loads(message)
-        recipient = message.get("recipient")
+        logger.error(f"Received message: {message}")
+        result = {
+            "id": 1,
+            "receiver": {"id": 1, "username": "Samer", "platform_ids": {"whatsapp": "33601090133"}},
+            "channel": {"id": 1, "name": "Samer", "platform_ids": {"whatsapp": "33601090133"}},
+            "content": "Welcome ${user_mention}! I'm Spark, your Ikigai guide. **Click the button** and then find me in your **private messages**!",
+            "files": [],
+            "buttons": [
+                {
+                    "id": 1,
+                    "style": 3,
+                    "label": "✨ Click to start ✨",
+                    "clicked": False,
+                    "remove_after_click": True,
+                }
+            ],
+        }
+        receiver = message["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
         content = message.get("content", "")
-        message_type = message.get("type", MessageType.TEXT.value)
         buttons = message.get("buttons", [])
         buttons = [
             Button(
@@ -190,40 +206,52 @@ class WebSocketService(BaseService):
             )
             for button in buttons
         ]
-        if message_type == MessageType.TEXT.value:
-            await self._send_text(recipient, content, buttons)
-        if message_type == MessageType.IMAGE.value:
-            await self._send_image(recipient, content, buttons)
+        for file in message.get("files", []):
+            await self._send_image(receiver, content, buttons)
+        await self._send_text(receiver, content, buttons)
 
-    async def on_error(self, connection: websockets.connect, user_id: str, error: str):
-        logger.error(f"Error on websocket connection for user {user_id}: {error}")
-        self.connections.pop(user_id, None)
+    async def on_error(self, connection: websockets.connect, error: str):
+        logger.error(f"Error on websocket connection {str(connection)}: {error}")
+        self.connections = None
 
-    async def on_close(self, connection: websockets.connect, user_id: str):
-        logger.info(f"Closed websocket connection for user {user_id}")
-        self.connections.pop(user_id, None)
+    async def on_close(self, connection: websockets.connect):
+        logger.info(f"Closed websocket connection {str(connection)}")
+        self.connections = None
 
-    async def on_open(self, connection: websockets.connect, user_id: str):
-        logger.info(f"Opened websocket connection for user {user_id}")
+    async def on_open(self, connection: websockets.connect):
+        logger.info(f"Opened websocket connection {str(connection)}")
 
-    async def send_message(self, message: Message):
-        connection, _ = await self.get_or_create_connection(message.from_user.wa_id)
-        json_message = json.dumps(self.serialize_message(message))
-        await connection.send(json_message)
-
-    async def send_button_click(self, button_data: CallbackButton[ButtonData]):
-        callback_data = button_data.data.custom_id
-        connection, _ = await self.get_or_create_connection(button_data.from_user.wa_id)
-        json_message = json.dumps(self.serialize_button_click(button_data))
-        await connection.send(json_message)
-
-    async def listen_to_connection(self, connection: websockets.connect, user_id: str):
+    async def send_message(self, message: Message, is_retry: bool = False):
         try:
-            await self.on_open(connection, user_id)
+            connection, _ = await self.get_or_create_connection()
+            json_message = json.dumps(self.serialize_message(message))
+            await connection.send(json_message)
+        except websockets.exceptions.ConnectionClosed as e:
+            if is_retry:
+                raise e
+            self.connection = None
+            await self.send_message(message, is_retry=True)
+
+    async def send_button_click(
+        self, button_data: CallbackButton[ButtonData], is_retry: bool = False
+    ):
+        try:
+            connection, _ = await self.get_or_create_connection()
+            json_message = json.dumps(self.serialize_button_click(button_data))
+            await connection.send(json_message)
+        except websockets.exceptions.ConnectionClosed as e:
+            if is_retry:
+                raise e
+            self.connection = None
+            await self.send_button_click(button_data, is_retry=True)
+
+    async def listen_to_connection(self, connection: websockets.connect):
+        try:
+            await self.on_open(connection)
             async for message in connection:
                 await self.on_message(connection, message)
         except websockets.ConnectionClosed as e:
-            await self.on_close(connection, user_id)
+            await self.on_close(connection)
         except Exception as e:
-            await self.on_error(connection, user_id, str(e))
-        await self.on_close(connection, user_id)
+            await self.on_error(connection, str(e))
+        await self.on_close(connection)

@@ -16,4 +16,3 @@ class Events(Enum):
 
 
 # class ButtonTypes(Enum):
-    
