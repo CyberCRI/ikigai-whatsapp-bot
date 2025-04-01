@@ -1,11 +1,6 @@
 from enum import Enum
 
 
-class MessageType(Enum):
-    TEXT = "text"
-    IMAGE = "image"
-
-
 class Events(Enum):
     """The events that are handled by the server."""
 
@@ -15,4 +10,12 @@ class Events(Enum):
     MEMBER_UPDATE = "member_update"
 
 
-# class ButtonTypes(Enum):
+class ResponseTypes(str, Enum):
+    """The actions that can be sent by the server."""
+
+    MESSAGE = "message"
+    IMAGES = "images"
+    ADD_ROLE = "add_role"
+    REMOVE_ROLE = "remove_role"
+    START_TYPING = "start_typing"
+    STOP_TYPING = "stop_typing"

@@ -38,12 +38,12 @@ websocket_service = WebSocketService(
 
 @whatsapp.on_message
 async def on_message(client: WhatsApp, message: Message):
-    await websocket_service.send_message(message)
+    await websocket_service.post_message_to_server(message)
 
 
 @whatsapp.on_callback_button(factory=ButtonData)
 async def on_callback_button(client: WhatsApp, button: CallbackButton[ButtonData]):
-    await websocket_service.send_button_click(button)
+    await websocket_service.post_button_click_to_server(button)
 
 
 if __name__ == "__main__":
