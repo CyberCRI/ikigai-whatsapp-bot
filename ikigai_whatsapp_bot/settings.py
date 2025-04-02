@@ -6,6 +6,9 @@ class Settings(BaseSettings):
 
     # Ikigai API settings
     IKIGAI_API_URL: str = "http://ikigai-server:8000"
+    IKIGAI_STATIC_FILES_URL: str = (
+        "http://ikigai-server:8000"  # For local development, if using ngrok to expose the server
+    )
     IKIGAI_WEBSOCKET_URL: str = "ws://ikigai-server:8000"
     IKIGAI_WEBSOCKET_PLATFORM_NAME: str = "whatsapp"
     IKGAI_API_TOKEN: str

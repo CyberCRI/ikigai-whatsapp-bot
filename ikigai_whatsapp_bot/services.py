@@ -107,8 +107,13 @@ class BaseService(ABC):
             for button in buttons
         ]
         for image in images:
-            # await self._send_image(receiver, image, buttons)
-            await self._send_text(receiver, f"IMAGE : {image['file_name']}", buttons)
+            await self._send_image(receiver, image, buttons)
+
+    async def send_static_image_to_user(self, response: Dict[str, Any]):
+        response["images"] = [
+            f"{settings.IKIGAI_STATIC_FILES_URL}{image}" for image in response.get("images", [])
+        ]
+        await self.send_image_to_user(response)
 
     async def add_role_to_user(self, response: Dict[str, Any]):
         pass
@@ -131,6 +136,8 @@ class BaseService(ABC):
                 await self.send_message_to_user(content)
             case ResponseTypes.IMAGES.value:
                 await self.send_image_to_user(content)
+            case ResponseTypes.STATIC_IMAGES.value:
+                await self.send_static_image_to_user(content)
             case ResponseTypes.ADD_ROLE.value:
                 await self.add_role_to_user(content)
             case ResponseTypes.REMOVE_ROLE.value:

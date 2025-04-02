@@ -15,6 +15,7 @@ class ResponseTypes(str, Enum):
 
     MESSAGE = "message"
     IMAGES = "images"
+    STATIC_IMAGES = "static_images"
     ADD_ROLE = "add_role"
     REMOVE_ROLE = "remove_role"
     START_TYPING = "start_typing"
