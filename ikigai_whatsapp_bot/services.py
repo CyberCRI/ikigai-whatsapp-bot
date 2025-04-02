@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import traceback
 from abc import ABC
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -178,7 +179,8 @@ class BaseService(ABC):
             try:
                 await self._handle_response(task["action"], task["content"])
             except Exception as e:
-                logger.error("Failed to process task %s for user %s: %s", task, user_id, str(e))
+                logger.error("Failed to process task %s for user %s", task["action"], user_id)
+                logger.error(traceback.format_exc())
             finally:
                 queue.task_done()
 
