@@ -6,8 +6,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import websockets
+from pywa_async import filters as pywa_filters
 from pywa_async import WhatsApp
 from pywa_async.types import Button, CallbackButton, Message
+from pywa_async.types.sent_message import SentMessage
 
 from enums import Events, ResponseTypes
 from schemas import ButtonData
@@ -17,8 +19,175 @@ logger = logging.getLogger(__name__)
 
 
 class BaseService(ABC):
+    """
+    Base class for services that interact with the Ikigai Server.
+
+    To use it, create a service class that inherits from this class. When receiving a task from the
+    server :
+    - Send events to the server :
+        first serialize the event using the `serialize_message` or `serialize_button_click` methods.
+    - Handle responses from the server:
+        Call the `add_response_to_queue` method with the user ID and the response content to handle
+        the task. The service will automatically create a queue for the user if it doesn't exist and
+        process the task in the background.
+
+    Arguments:
+        whatsapp_client (WhatsApp): The WhatsApp client instance.
+
+    Attributes:
+        whatsapp_client (WhatsApp): The WhatsApp client instance.
+        user_queues (Dict[str, Queue]): A dictionary mapping user IDs to their message queues.
+        user_tasks (Dict[str, Task]): A dictionary mapping user IDs to their processing tasks.
+
+    Methods:
+
+    """
+
     def __init__(self, whatsapp_client: WhatsApp):
         self.whatsapp_client = whatsapp_client
+        self.user_queues: Dict[str, asyncio.Queue] = {}
+        self.user_tasks: Dict[str, asyncio.Task] = {}
+
+    async def _wait_for_message_to_be_sent(self, message: SentMessage, timeout: int = 10):
+        """Wait for the message to be sent to avoid out of order messages."""
+        await message._client.listen(
+            to=message.recipient,
+            sent_to_phone_id=message.sender,
+            filters=pywa_filters.update_id(message.id) & pywa_filters.sent,
+            cancelers=None,
+            timeout=timeout,
+        )
+
+    async def _send_text(
+        self, user_id: str, text: str, buttons: Optional[List[Dict[str, str]]] = None
+    ):
+        """Send a text message with optional buttons to a user."""
+        sent_message = await self.whatsapp_client.send_message(user_id, text, buttons=buttons)
+        await self._wait_for_message_to_be_sent(sent_message)
+
+    async def _send_image(
+        self, user_id: str, image: str, buttons: Optional[List[Dict[str, str]]] = None
+    ):
+        """Send an image with optional buttons to a user."""
+        sent_image = await self.whatsapp_client.send_image(user_id, image, buttons=buttons)
+        await self._wait_for_message_to_be_sent(sent_image)
+
+    async def _send_video(
+        self, user_id: str, video: str, buttons: Optional[List[Dict[str, str]]] = None
+    ):
+        """Send a video with optional buttons to a user."""
+        sent_video = await self.whatsapp_client.send_video(user_id, video, buttons=buttons)
+        await self._wait_for_message_to_be_sent(sent_video)
+
+    async def _send_message_to_user(self, response: Dict[str, Any]):
+        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
+        content = response.get("content", {}).get("message", None)
+        buttons = response.get("buttons", [])
+        if buttons or content:
+            if not content:
+                content = ""
+            buttons = [
+                Button(
+                    title=button["label"],
+                    callback_data=ButtonData(**button),
+                )
+                for button in buttons
+            ]
+            await self._send_text(receiver, content, buttons)
+
+    async def _send_image_to_user(self, response: Dict[str, Any]):
+        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
+        images = response.get("images", [])
+        buttons = response.get("buttons", [])
+        buttons = [
+            Button(
+                title=button["label"],
+                callback_data=ButtonData(**button),
+            )
+            for button in buttons
+        ]
+        for image in images:
+            await self._send_image(receiver, image, buttons)
+
+    async def _send_static_image_to_user(self, response: Dict[str, Any]):
+        images: List[str] = response.get("images", [])
+        response["images"] = [
+            f"{settings.IKIGAI_STATIC_FILES_URL}/{image.replace(settings.IKIGAI_SERVER_ROOT_PATH, '')}"
+            for image in images
+        ]
+        await self._send_image_to_user(response)
+
+    async def _send_static_gifs_to_user(self, response: Dict[str, Any]):
+        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
+        gifs: List[str] = response.get("images", [])
+        buttons = response.get("buttons", [])
+        gifs = [
+            f"{settings.IKIGAI_STATIC_FILES_URL}/{gif.replace(settings.IKIGAI_SERVER_ROOT_PATH, '')}"
+            for gif in gifs
+        ]
+        for gif in gifs:
+            await self._send_video(receiver, gif, buttons)
+
+    async def _add_role_to_user(self, response: Dict[str, Any]):
+        pass
+
+    async def _remove_role_from_user(self, response: Dict[str, Any]):
+        pass
+
+    async def _start_typing(self, response: Dict[str, Any]):
+        pass
+
+    async def _stop_typing(self, response: Dict[str, Any]):
+        pass
+
+    async def _handle_response(self, action: str, content: Dict[str, Any]):
+        match action:
+            case ResponseTypes.MESSAGE.value:
+                await self._send_message_to_user(content)
+            case ResponseTypes.IMAGES.value:
+                await self._send_image_to_user(content)
+            case ResponseTypes.STATIC_IMAGES.value:
+                await self._send_static_image_to_user(content)
+            case ResponseTypes.STATIC_GIFS.value:
+                await self._send_static_gifs_to_user(content)
+            case ResponseTypes.ADD_ROLE.value:
+                await self._add_role_to_user(content)
+            case ResponseTypes.REMOVE_ROLE.value:
+                await self._remove_role_from_user(content)
+            case ResponseTypes.START_TYPING.value:
+                await self._start_typing(content)
+            case ResponseTypes.STOP_TYPING.value:
+                await self._stop_typing(content)
+
+    def _get_or_create_queue(self, user_id: str) -> asyncio.Queue:
+        """
+        Get or create a queue for the specified user.
+        """
+        if user_id not in self.user_queues:
+            self.user_queues[user_id] = asyncio.Queue()
+            self.user_tasks[user_id] = asyncio.create_task(self._process_queue(user_id))
+        return self.user_queues[user_id]
+
+    async def _process_queue(self, user_id: str):
+        """
+        Process the message queue for a specific user.
+        """
+        queue = self.user_queues[user_id]
+        while True:
+            task = await queue.get()
+            try:
+                await self._handle_response(task["action"], task["content"])
+            except Exception as e:
+                logger.error("Failed to process task %s for user %s: %s", task, user_id, str(e))
+            finally:
+                queue.task_done()
+
+    async def add_response_to_queue(self, user_id: str, response: Dict[str, Any]):
+        """
+        Add a message to the user's queue.
+        """
+        queue = self._get_or_create_queue(user_id)
+        await queue.put(response)
 
     @classmethod
     def serialize_message(cls, message: Message) -> Dict[str, Any]:
@@ -68,84 +237,6 @@ class BaseService(ABC):
                 },
             },
         }
-
-    async def _send_text(
-        self, user_id: str, text: str, buttons: Optional[List[Dict[str, str]]] = None
-    ):
-        await self.whatsapp_client.send_message(user_id, text, buttons=buttons)
-
-    async def _send_image(
-        self, user_id: str, image: str, buttons: Optional[List[Dict[str, str]]] = None
-    ):
-        await self.whatsapp_client.send_image(user_id, image, buttons=buttons)
-
-    async def send_message_to_user(self, response: Dict[str, Any]):
-        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        content = response.get("content", {}).get("message", None)
-        buttons = response.get("buttons", [])
-        if buttons or content:
-            if not content:
-                content = ""
-            buttons = [
-                Button(
-                    title=button["label"],
-                    callback_data=ButtonData(**button),
-                )
-                for button in buttons
-            ]
-            await self._send_text(receiver, content, buttons)
-
-    async def send_image_to_user(self, response: Dict[str, Any]):
-        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        images = response.get("images", [])
-        buttons = response.get("buttons", [])
-        buttons = [
-            Button(
-                title=button["label"],
-                callback_data=ButtonData(**button),
-            )
-            for button in buttons
-        ]
-        for image in images:
-            await self._send_image(receiver, image, buttons)
-
-    async def send_static_image_to_user(self, response: Dict[str, Any]):
-        response["images"] = [
-            f"{settings.IKIGAI_STATIC_FILES_URL}{image}" for image in response.get("images", [])
-        ]
-        await self.send_image_to_user(response)
-
-    async def add_role_to_user(self, response: Dict[str, Any]):
-        pass
-
-    async def remove_role_from_user(self, response: Dict[str, Any]):
-        pass
-
-    async def start_typing(self, response: Dict[str, Any]):
-        pass
-
-    async def stop_typing(self, response: Dict[str, Any]):
-        pass
-
-    async def handle_response(self, response: Dict[str, Any]):
-        response = json.loads(response)
-        action = response["action"]
-        content = response["content"]
-        match action:
-            case ResponseTypes.MESSAGE.value:
-                await self.send_message_to_user(content)
-            case ResponseTypes.IMAGES.value:
-                await self.send_image_to_user(content)
-            case ResponseTypes.STATIC_IMAGES.value:
-                await self.send_static_image_to_user(content)
-            case ResponseTypes.ADD_ROLE.value:
-                await self.add_role_to_user(content)
-            case ResponseTypes.REMOVE_ROLE.value:
-                await self.remove_role_from_user(content)
-            case ResponseTypes.START_TYPING.value:
-                await self.start_typing(content)
-            case ResponseTypes.STOP_TYPING.value:
-                await self.stop_typing(content)
 
 
 class APIService(BaseService):
@@ -250,16 +341,16 @@ class WebSocketService(BaseService):
             return connection, True
         return self.connections[user_id], False
 
-    async def on_error(self, connection: websockets.connect, user_id: str, error: Exception):
+    async def on_error(self, user_id: str, error: Exception):
         self.connections.pop(user_id, None)
         raise error
 
-    async def on_close(self, connection: websockets.connect, user_id: str):
-        logger.info(f"Closed websocket connection for user {user_id}")
+    async def on_close(self, user_id: str):
+        logger.info("Closed websocket connection for user %s", user_id)
         self.connections.pop(user_id, None)
 
-    async def on_open(self, connection: websockets.connect, user_id: str):
-        logger.info(f"Opened websocket connection for user {user_id}")
+    async def on_open(self, user_id: str):
+        logger.info("Opened websocket connection for user %s", user_id)
 
     async def post_message_to_server(self, message: Message, is_retry: bool = False):
         try:
@@ -287,11 +378,12 @@ class WebSocketService(BaseService):
 
     async def listen_to_connection(self, connection: websockets.connect, user_id: str):
         try:
-            await self.on_open(connection, user_id)
+            await self.on_open(user_id)
             async for response in connection:
-                await self.handle_response(response)
+                response = json.loads(response)
+                await self.add_response_to_queue(user_id, response)
         except websockets.ConnectionClosed:
-            await self.on_close(connection, user_id)
+            await self.on_close(user_id)
         except Exception as e:
-            await self.on_error(connection, user_id, e)
-        await self.on_close(connection, user_id)
+            await self.on_error(user_id, e)
+        await self.on_close(user_id)
