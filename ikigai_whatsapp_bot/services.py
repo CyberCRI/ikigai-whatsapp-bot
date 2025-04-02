@@ -112,7 +112,7 @@ class BaseService(ABC):
     async def _send_static_image_to_user(self, response: Dict[str, Any]):
         images: List[str] = response.get("images", [])
         response["images"] = [
-            f"{settings.IKIGAI_STATIC_FILES_URL}/{image.replace(settings.IKIGAI_SERVER_ROOT_PATH, '')}"
+            settings.IKIGAI_STATIC_FILES_URL + image.replace(settings.IKIGAI_SERVER_ROOT_PATH, "")
             for image in images
         ]
         await self._send_image_to_user(response)
@@ -122,7 +122,7 @@ class BaseService(ABC):
         gifs: List[str] = response.get("images", [])
         buttons = response.get("buttons", [])
         gifs = [
-            f"{settings.IKIGAI_STATIC_FILES_URL}/{gif.replace(settings.IKIGAI_SERVER_ROOT_PATH, '')}"
+            settings.IKIGAI_STATIC_FILES_URL + gif.replace(settings.IKIGAI_SERVER_ROOT_PATH, "")
             for gif in gifs
         ]
         for gif in gifs:
