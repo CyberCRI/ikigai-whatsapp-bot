@@ -2,10 +2,11 @@ import logging
 
 from fastapi import FastAPI
 from pywa_async import WhatsApp
-from pywa_async.types import Message
+from pywa_async.types import CallbackButton, Message
 
 from __version__ import __version__
-from client import IkigaiAPIClient
+from schemas import ButtonData
+from services import WebSocketService
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -28,29 +29,21 @@ whatsapp = WhatsApp(
     app_secret=settings.WHATSAPP_APP_SECRET,
 )
 
+websocket_service = WebSocketService(
+    whatsapp_client=whatsapp,
+    websocket_url=settings.IKIGAI_WEBSOCKET_URL,
+    platform_name=settings.IKIGAI_WEBSOCKET_PLATFORM_NAME,
+)
+
 
 @whatsapp.on_message
 async def on_message(client: WhatsApp, message: Message):
-    """
-    Handle incoming messages from WhatsApp.
+    await websocket_service.post_message_to_server(message)
 
-    Args:
-        client (WhatsApp): The WhatsApp client.
-        message (Message): The incoming message.
 
-    Returns:
-        dict: The response and status
-    """
-    ikigai_client = IkigaiAPIClient()
-    try:
-        response = await ikigai_client.post_message(message)
-        logger.info("Response from Ikigai API: %s", response)
-    except Exception as e:
-        logger.error("Error posting message to Ikigai API: %s", e)
-
-    # Just send back the message for testing purpose
-    await client.send_message(message.from_user.wa_id, message.text)
-    return {"status": "ok"}, 200
+@whatsapp.on_callback_button(factory=ButtonData)
+async def on_callback_button(client: WhatsApp, button: CallbackButton[ButtonData]):
+    await websocket_service.post_button_click_to_server(button)
 
 
 if __name__ == "__main__":
