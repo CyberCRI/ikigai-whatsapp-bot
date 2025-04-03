@@ -67,10 +67,14 @@ class BaseService(ABC):
         await self._wait_for_message_to_be_sent(sent_message)
 
     async def _send_image(
-        self, user_id: str, image: str, buttons: Optional[List[Dict[str, str]]] = None
+        self,
+        user_id: str,
+        image: str,
+        caption: Optional[str] = None,
+        buttons: Optional[List[Dict[str, str]]] = None,
     ):
         """Send an image with optional buttons to a user."""
-        sent_image = await self.whatsapp_client.send_image(user_id, image, buttons=buttons)
+        sent_image = await self.whatsapp_client.send_image(user_id, image, caption, buttons=buttons)
         await self._wait_for_message_to_be_sent(sent_image)
 
     async def _send_sticker(self, user_id: str, sticker: str):
@@ -82,11 +86,9 @@ class BaseService(ABC):
 
     async def _send_message_to_user(self, response: Dict[str, Any]):
         receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        content = response.get("content", {}).get("message", None)
+        content = response.get("message", "") or ""
         buttons = response.get("buttons", [])
         if buttons or content:
-            if not content:
-                content = ""
             buttons = [
                 Button(
                     title=button["label"],
@@ -98,7 +100,8 @@ class BaseService(ABC):
 
     async def _send_image_to_user(self, response: Dict[str, Any]):
         receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        images = response.get("images", [])
+        image = response["image"]
+        caption = response.get("caption", None)
         buttons = response.get("buttons", [])
         buttons = [
             Button(
@@ -107,18 +110,16 @@ class BaseService(ABC):
             )
             for button in buttons
         ]
-        for image in images:
-            await self._send_image(receiver, image, buttons)
+        await self._send_image(receiver, image, caption, buttons)
 
     async def _send_static_image_to_user(self, response: Dict[str, Any]):
-        images: List[str] = response.get("images", [])
-        response["images"] = [
-            settings.IKIGAI_STATIC_FILES_URL + image.replace(settings.IKIGAI_SERVER_ROOT_PATH, "")
-            for image in images
-        ]
+        image: str = response["image"]
+        response["image"] = settings.IKIGAI_STATIC_FILES_URL + image.replace(
+            settings.IKIGAI_SERVER_ROOT_PATH, ""
+        )
         await self._send_image_to_user(response)
 
-    async def _send_static_gifs_to_user(self, response: Dict[str, Any]):
+    async def _send_static_gif_to_user(self, response: Dict[str, Any]):
         """
         Gifs are not supported by WhatsApp, so we convert them to webp format.
         Gifs are sent in the following format: {app_root_path}/static/gifs/filename.gif
@@ -153,12 +154,12 @@ class BaseService(ABC):
         match action:
             case ResponseTypes.MESSAGE.value:
                 await self._send_message_to_user(content)
-            case ResponseTypes.IMAGES.value:
+            case ResponseTypes.IMAGE.value:
                 await self._send_image_to_user(content)
-            case ResponseTypes.STATIC_IMAGES.value:
+            case ResponseTypes.STATIC_IMAGE.value:
                 await self._send_static_image_to_user(content)
-            case ResponseTypes.STATIC_GIFS.value:
-                await self._send_static_gifs_to_user(content)
+            case ResponseTypes.STATIC_GIF.value:
+                await self._send_static_gif_to_user(content)
             case ResponseTypes.ADD_ROLE.value:
                 await self._add_role_to_user(content)
             case ResponseTypes.REMOVE_ROLE.value:
