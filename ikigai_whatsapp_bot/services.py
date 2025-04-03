@@ -51,7 +51,7 @@ class BaseService(ABC):
 
     async def _wait_for_message_to_be_sent(self, message: SentMessage, timeout: int = 10):
         """Wait for the message to be sent to avoid out of order messages."""
-        await message._client.listen(
+        await message._client.listen(  # pylint: disable=W0212
             to=message.recipient,
             sent_to_phone_id=message.sender,
             filters=pywa_filters.update_id(message.id) & pywa_filters.sent,
@@ -73,12 +73,12 @@ class BaseService(ABC):
         sent_image = await self.whatsapp_client.send_image(user_id, image, buttons=buttons)
         await self._wait_for_message_to_be_sent(sent_image)
 
-    async def _send_video(
-        self, user_id: str, video: str, buttons: Optional[List[Dict[str, str]]] = None
-    ):
-        """Send a video with optional buttons to a user."""
-        sent_video = await self.whatsapp_client.send_video(user_id, video, buttons=buttons)
-        await self._wait_for_message_to_be_sent(sent_video)
+    async def _send_sticker(self, user_id: str, sticker: str):
+        """
+        Send a sticker to a user.
+        """
+        sent_sticker = await self.whatsapp_client.send_sticker(user_id, sticker)
+        await self._wait_for_message_to_be_sent(sent_sticker)
 
     async def _send_message_to_user(self, response: Dict[str, Any]):
         receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
@@ -119,15 +119,23 @@ class BaseService(ABC):
         await self._send_image_to_user(response)
 
     async def _send_static_gifs_to_user(self, response: Dict[str, Any]):
+        """
+        Gifs are not supported by WhatsApp, so we convert them to webp format.
+        Gifs are sent in the following format: {app_root_path}/static/gifs/filename.gif
+        The server must provide in the same directory a webp version of the gif, this allows us to
+        send the webp version as a sticker to WhatsApp by replacing the gif extension with webp.
+
+        Stickers must respect the following constraints to be accepted by WhatsApp:
+            - dimensions must be exactly 512*512px
+            - size must not exceed 100kb (500kb if the sticker is animated)
+        """
         receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
         gifs: List[str] = response.get("images", [])
-        buttons = response.get("buttons", [])
-        gifs = [
-            settings.IKIGAI_STATIC_FILES_URL + gif.replace(settings.IKIGAI_SERVER_ROOT_PATH, "")
-            for gif in gifs
-        ]
         for gif in gifs:
-            await self._send_video(receiver, gif, buttons)
+            gif = settings.IKIGAI_STATIC_FILES_URL + gif  # Add API URL to the gif path
+            gif = gif.replace(settings.IKIGAI_SERVER_ROOT_PATH, "")  # Remove the server's root path
+            gif = gif.replace(".gif", ".webp")  # Convert gif to webp format for WhatsApp
+            await self._send_sticker(receiver, gif)
 
     async def _add_role_to_user(self, response: Dict[str, Any]):
         pass
@@ -178,7 +186,7 @@ class BaseService(ABC):
             task = await queue.get()
             try:
                 await self._handle_response(task["action"], task["content"])
-            except Exception as e:
+            except Exception:  # pylint: disable=W0718
                 logger.error("Failed to process task %s for user %s", task["action"], user_id)
                 logger.error(traceback.format_exc())
             finally:
@@ -252,7 +260,7 @@ class APIService(BaseService):
         timeout (int): The timeout for requests.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=R0913, R0917
         self,
         whatsapp_client: WhatsApp,
         base_url: str = settings.IKIGAI_API_URL,
@@ -318,6 +326,22 @@ class APIService(BaseService):
 
 
 class WebSocketService(BaseService):
+    """
+    Client for interacting with the Ikigai WebSocket endpoint.
+
+    This class manages WebSocket connections for each user and handles sending and receiving
+    messages. It extends the BaseService class that handles all of the instructions received from
+    the server.
+
+    Arguments:
+        whatsapp_client (WhatsApp): The WhatsApp client instance.
+        websocket_url (str): The base URL of the Ikigai WebSocket endpoint.
+        platform_name (str): The name of the client (e.g., "whatsapp")
+        connection_timeout (int): The timeout for WebSocket connections.
+
+    Methods:
+        send_message_to_server(message: Message): Send a message to the server via WebSocket.
+    """
 
     def __init__(
         self,
@@ -332,31 +356,57 @@ class WebSocketService(BaseService):
         self.connections: Dict[str, websockets.connect] = {}
         super().__init__(whatsapp_client)
 
-    async def get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
+    async def _get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
+        """
+        Get or create a WebSocket connection for the specified user.
+        If the connection already exists, it returns the existing connection.
+        """
         if user_id not in self.connections:
             connection = await websockets.connect(
                 f"{self.websocket_url}/websocket/platform/{self.platform_name}/user/{user_id}",
                 close_timeout=self.connection_timeout,
             )
             self.connections[user_id] = connection
-            asyncio.create_task(self.listen_to_connection(connection, user_id))
+            asyncio.create_task(self._listen_to_connection(connection, user_id))
             return connection, True
         return self.connections[user_id], False
 
-    async def on_error(self, user_id: str, error: Exception):
+    async def _on_error(self, user_id: str, error: Exception):
+        """Handle errors that occur during WebSocket communication."""
         self.connections.pop(user_id, None)
         raise error
 
-    async def on_close(self, user_id: str):
+    async def _on_close(self, user_id: str):
+        """Remove the closed connection from the connections dictionary."""
         logger.info("Closed websocket connection for user %s", user_id)
         self.connections.pop(user_id, None)
 
-    async def on_open(self, user_id: str):
+    async def _on_open(self, user_id: str):
+        """Handle the opening of a WebSocket connection."""
         logger.info("Opened websocket connection for user %s", user_id)
 
-    async def post_message_to_server(self, message: Message, is_retry: bool = False):
+    async def _listen_to_connection(self, connection: websockets.connect, user_id: str):
+        """
+        Listen to the WebSocket connection and handle incoming messages.
+        """
         try:
-            connection, _ = await self.get_or_create_connection(message.from_user.wa_id)
+            await self._on_open(user_id)
+            async for response in connection:
+                response = json.loads(response)
+                await self.add_response_to_queue(user_id, response)
+        except websockets.ConnectionClosed:
+            await self._on_close(user_id)
+        except Exception as e:  # pylint: disable=W0718
+            await self._on_error(user_id, e)
+        await self._on_close(user_id)
+
+    async def post_message_to_server(self, message: Message, is_retry: bool = False):
+        """
+        Serialize an incoming pywa_async.types.Message object and send it to the server via
+        WebSocket.
+        """
+        try:
+            connection, _ = await self._get_or_create_connection(message.from_user.wa_id)
             json_message = json.dumps(self.serialize_message(message))
             await connection.send(json_message)
         except websockets.exceptions.ConnectionClosed as e:
@@ -368,8 +418,12 @@ class WebSocketService(BaseService):
     async def post_button_click_to_server(
         self, button_data: CallbackButton[ButtonData], is_retry: bool = False
     ):
+        """
+        Serialize an incoming pywa_async.types.CallbackButton object and send it to the server via
+        WebSocket.
+        """
         try:
-            connection, _ = await self.get_or_create_connection(button_data.from_user.wa_id)
+            connection, _ = await self._get_or_create_connection(button_data.from_user.wa_id)
             json_message = json.dumps(self.serialize_button_click(button_data))
             await connection.send(json_message)
         except websockets.exceptions.ConnectionClosed as e:
@@ -377,15 +431,3 @@ class WebSocketService(BaseService):
                 raise e
             self.connections.pop(button_data.from_user.wa_id, None)
             await self.post_button_click_to_server(button_data, is_retry=True)
-
-    async def listen_to_connection(self, connection: websockets.connect, user_id: str):
-        try:
-            await self.on_open(user_id)
-            async for response in connection:
-                response = json.loads(response)
-                await self.add_response_to_queue(user_id, response)
-        except websockets.ConnectionClosed:
-            await self.on_close(user_id)
-        except Exception as e:
-            await self.on_error(user_id, e)
-        await self.on_close(user_id)
