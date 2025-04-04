@@ -13,7 +13,14 @@ from pywa_async.types import Button, CallbackButton, Message
 from pywa_async.types.sent_message import SentMessage
 
 from enums import Events, ResponseTypes
-from schemas import ButtonData
+from schemas import (
+    ButtonData,
+    ButtonResponse,
+    ImageResponse,
+    MessageResponse,
+    RoleResponse,
+    TypingResponse,
+)
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -59,6 +66,23 @@ class BaseService(ABC):
             timeout=timeout,
         )
 
+    async def _create_buttons(self, buttons: List[ButtonResponse]) -> List[Button]:
+        """Create buttons from the response."""
+        return [
+            Button(
+                title=button.label,
+                callback_data=ButtonData(
+                    id=button.id,
+                    custom_id=button.custom_id,
+                    style=button.style,
+                    label=button.label,
+                    clicked=button.clicked,
+                    remove_after_click=button.remove_after_click,
+                ),
+            )
+            for button in buttons
+        ]
+
     async def _send_text(
         self, user_id: str, text: str, buttons: Optional[List[Dict[str, str]]] = None
     ):
@@ -84,32 +108,18 @@ class BaseService(ABC):
         sent_sticker = await self.whatsapp_client.send_sticker(user_id, sticker)
         await self._wait_for_message_to_be_sent(sent_sticker)
 
-    async def _send_message_to_user(self, response: Dict[str, Any]):
-        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        content = response.get("message", "") or ""
-        buttons = response.get("buttons", [])
-        if buttons or content:
-            buttons = [
-                Button(
-                    title=button["label"],
-                    callback_data=ButtonData(**button),
-                )
-                for button in buttons
-            ]
-            await self._send_text(receiver, content, buttons)
+    async def _send_message_to_user(self, response: MessageResponse):
+        user = response.user.platform_ids[settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
+        content = response.message or ""
+        if response.buttons or content:
+            buttons = await self._create_buttons(response.buttons)
+            await self._send_text(user, content, buttons)
 
-    async def _send_image_to_user(self, response: Dict[str, Any]):
-        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        image = response["image"]
-        caption = response.get("caption", None)
-        buttons = response.get("buttons", [])
-        buttons = [
-            Button(
-                title=button["label"],
-                callback_data=ButtonData(**button),
-            )
-            for button in buttons
-        ]
+    async def _send_image_to_user(self, response: ImageResponse):
+        user = response.user.platform_ids[settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
+        image = response.image
+        caption = response.caption
+        buttons = await self._create_buttons(response.buttons)
         if image.endswith(".gif"):
             # Convert GIF to WEBP format and send it as a sticker
             image = str(image).rsplit(".", 1)[0] + ".webp"
@@ -117,8 +127,8 @@ class BaseService(ABC):
                 logger.warning(
                     "Stickers do not support buttons or captions, sending only the sticker."
                 )
-            await self._send_sticker(receiver, image)
-        await self._send_image(receiver, image, caption, buttons)
+            await self._send_sticker(user, image)
+        await self._send_image(user, image, caption, buttons)
 
     async def _add_role_to_user(self, response: Dict[str, Any]):
         pass
@@ -135,16 +145,22 @@ class BaseService(ABC):
     async def _handle_response(self, action: str, content: Dict[str, Any]):
         match action:
             case ResponseTypes.MESSAGE.value:
+                content = MessageResponse(**content)
                 await self._send_message_to_user(content)
             case ResponseTypes.IMAGE.value:
+                content = ImageResponse(**content)
                 await self._send_image_to_user(content)
             case ResponseTypes.ADD_ROLE.value:
+                content = RoleResponse(**content)
                 await self._add_role_to_user(content)
             case ResponseTypes.REMOVE_ROLE.value:
+                content = RoleResponse(**content)
                 await self._remove_role_from_user(content)
             case ResponseTypes.START_TYPING.value:
+                content = TypingResponse(**content)
                 await self._start_typing(content)
             case ResponseTypes.STOP_TYPING.value:
+                content = TypingResponse(**content)
                 await self._stop_typing(content)
 
     def _get_or_create_queue(self, user_id: str) -> asyncio.Queue:
