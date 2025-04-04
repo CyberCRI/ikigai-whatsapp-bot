@@ -110,33 +110,15 @@ class BaseService(ABC):
             )
             for button in buttons
         ]
+        if image.endswith(".gif"):
+            # Convert GIF to WEBP format and send it as a sticker
+            image = str(image).rsplit(".", 1)[0] + ".webp"
+            if buttons or caption:
+                logger.warning(
+                    "Stickers do not support buttons or captions, sending only the sticker."
+                )
+            await self._send_sticker(receiver, image)
         await self._send_image(receiver, image, caption, buttons)
-
-    async def _send_static_image_to_user(self, response: Dict[str, Any]):
-        image: str = response["image"]
-        response["image"] = settings.IKIGAI_STATIC_FILES_URL + image.replace(
-            settings.IKIGAI_SERVER_ROOT_PATH, ""
-        )
-        await self._send_image_to_user(response)
-
-    async def _send_static_gif_to_user(self, response: Dict[str, Any]):
-        """
-        Gifs are not supported by WhatsApp, so we convert them to webp format.
-        Gifs are sent in the following format: {app_root_path}/static/gifs/filename.gif
-        The server must provide in the same directory a webp version of the gif, this allows us to
-        send the webp version as a sticker to WhatsApp by replacing the gif extension with webp.
-
-        Stickers must respect the following constraints to be accepted by WhatsApp:
-            - dimensions must be exactly 512*512px
-            - size must not exceed 100kb (500kb if the sticker is animated)
-        """
-        receiver = response["receiver"]["platform_ids"][settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        gifs: List[str] = response.get("images", [])
-        for gif in gifs:
-            gif = settings.IKIGAI_STATIC_FILES_URL + gif  # Add API URL to the gif path
-            gif = gif.replace(settings.IKIGAI_SERVER_ROOT_PATH, "")  # Remove the server's root path
-            gif = gif.replace(".gif", ".webp")  # Convert gif to webp format for WhatsApp
-            await self._send_sticker(receiver, gif)
 
     async def _add_role_to_user(self, response: Dict[str, Any]):
         pass
@@ -156,10 +138,6 @@ class BaseService(ABC):
                 await self._send_message_to_user(content)
             case ResponseTypes.IMAGE.value:
                 await self._send_image_to_user(content)
-            case ResponseTypes.STATIC_IMAGE.value:
-                await self._send_static_image_to_user(content)
-            case ResponseTypes.STATIC_GIF.value:
-                await self._send_static_gif_to_user(content)
             case ResponseTypes.ADD_ROLE.value:
                 await self._add_role_to_user(content)
             case ResponseTypes.REMOVE_ROLE.value:

@@ -6,12 +6,9 @@ class Settings(BaseSettings):
 
     # Ikigai API settings
     IKIGAI_API_URL: str = "http://ikigai-server:8000"
-    # Use an exposed url for local development to allow Whatsapp to reach the server
-    IKIGAI_STATIC_FILES_URL: str = "http://ikigai-server:8000"
     IKIGAI_WEBSOCKET_URL: str = "ws://ikigai-server:8000"
     IKIGAI_WEBSOCKET_PLATFORM_NAME: str = "whatsapp"
     IKGAI_API_TOKEN: str
-    IKIGAI_SERVER_ROOT_PATH: str = "/app"
 
     # HTTPX settings
     HTTPX_CLIENT_DEFAULT_TIMEOUT: int = 60
