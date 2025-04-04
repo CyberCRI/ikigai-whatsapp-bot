@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 from pydantic import BaseModel
 from pywa.types import CallbackData
@@ -47,7 +47,7 @@ class MessageResponse(BaseModel):
     channel: Optional[Channel]
     message: str
     buttons: list[ButtonResponse]
-    delete_after: Optional[int] = None
+    delete_after: Optional[Union[int, str]] = None
 
 
 class ImageResponse(BaseModel):
@@ -56,7 +56,7 @@ class ImageResponse(BaseModel):
     image: str
     buttons: list[ButtonResponse]
     caption: Optional[str] = None
-    delete_after: Optional[int] = None
+    delete_after: Optional[Union[int, str]] = None
 
 
 class RoleResponse(BaseModel):
