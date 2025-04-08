@@ -70,7 +70,7 @@ class BaseService(ABC):
         """Create buttons from the response."""
         return [
             Button(
-                title=button.label,
+                title=button.label[:20],
                 callback_data=ButtonData(
                     id=button.id,
                     custom_id=button.custom_id,
@@ -87,8 +87,17 @@ class BaseService(ABC):
         self, user_id: str, text: str, buttons: Optional[List[Dict[str, str]]] = None
     ):
         """Send a text message with optional buttons to a user."""
-        sent_message = await self.whatsapp_client.send_message(user_id, text, buttons=buttons)
-        await self._wait_for_message_to_be_sent(sent_message)
+        if buttons and len(buttons) > 3:
+            sent_message = await self.whatsapp_client.send_message(
+                user_id, text, buttons=buttons[:3]
+            )
+            await self._wait_for_message_to_be_sent(sent_message)
+            for i in range(3, len(buttons), 3):
+                buttons_chunk = buttons[i : i + 3]
+                await self._send_text(user_id, "___", buttons=buttons_chunk)
+        else:
+            sent_message = await self.whatsapp_client.send_message(user_id, text, buttons=buttons)
+            await self._wait_for_message_to_be_sent(sent_message)
 
     async def _send_image(
         self,
@@ -98,8 +107,19 @@ class BaseService(ABC):
         buttons: Optional[List[Dict[str, str]]] = None,
     ):
         """Send an image with optional buttons to a user."""
-        sent_image = await self.whatsapp_client.send_image(user_id, image, caption, buttons=buttons)
-        await self._wait_for_message_to_be_sent(sent_image)
+        if buttons and len(buttons) > 3:
+            sent_image = await self.whatsapp_client.send_image(
+                user_id, image, caption, buttons=buttons[:3]
+            )
+            await self._wait_for_message_to_be_sent(sent_image)
+            for i in range(3, len(buttons), 3):
+                buttons_chunk = buttons[i : i + 3]
+                await self._send_text(user_id, "___", buttons=buttons_chunk)
+        else:
+            sent_image = await self.whatsapp_client.send_image(
+                user_id, image, caption, buttons=buttons
+            )
+            await self._wait_for_message_to_be_sent(sent_image)
 
     async def _send_sticker(self, user_id: str, sticker: str):
         """
