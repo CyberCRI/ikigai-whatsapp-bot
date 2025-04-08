@@ -12,7 +12,7 @@ from pywa_async import WhatsApp
 from pywa_async.types import Button, CallbackButton, Message
 from pywa_async.types.sent_message import SentMessage
 
-from enums import Events, ResponseTypes
+from enums import ChannelTypes, Events, ResponseTypes
 from schemas import (
     ButtonData,
     ButtonResponse,
@@ -232,7 +232,7 @@ class BaseService(ABC):
                         "id": message.from_user.wa_id,
                     },
                     "name": message.from_user.name,
-                    "type": "dm",
+                    "type": ChannelTypes.DM.value,
                     "guild": None,
                 },
             },
@@ -257,7 +257,7 @@ class BaseService(ABC):
                         "id": callback_data.from_user.wa_id,
                     },
                     "name": callback_data.from_user.name,
-                    "type": "dm",
+                    "type": ChannelTypes.DM.value,
                     "guild": None,
                 },
             },

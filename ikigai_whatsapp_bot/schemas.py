@@ -4,6 +4,8 @@ from typing import Dict, Optional, Union
 from pydantic import BaseModel
 from pywa.types import CallbackData
 
+from enums import ChannelTypes
+
 
 @dataclass(frozen=True, slots=True)
 class ButtonData(CallbackData):
@@ -33,6 +35,7 @@ class ButtonResponse(BaseModel):
 class Channel(BaseModel):
     id: int
     name: str
+    type: ChannelTypes
     platform_ids: Dict[str, str]
 
 
