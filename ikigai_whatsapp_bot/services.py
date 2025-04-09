@@ -302,7 +302,7 @@ class APIService(BaseService):
         whatsapp_client: WhatsApp,
         platform_name: str = settings.CLIENT_NAME,
         api_url: str = settings.IKIGAI_API_URL,
-        token: str = settings.IKGAI_SERVER_TOKEN,
+        token: str = settings.IKIGAI_API_KEY,
         verify_ssl: bool = settings.HTTPX_CLIENT_VERIFY_SSL,
         timeout: int = settings.HTTPX_CLIENT_DEFAULT_TIMEOUT,
     ):
@@ -310,7 +310,7 @@ class APIService(BaseService):
         super().__init__(whatsapp_client)
         self.platform_name = platform_name
         self.api_url = api_url
-        headers = {"Content-type": "application/json", "Authorization": f"Bearer {token}"}
+        headers = {"Content-type": "application/json", "x-api-key": token}
         self.session = httpx.AsyncClient(headers=headers, verify=verify_ssl, timeout=timeout)
 
     async def _request(self, method: str, path: str, **kwargs):
@@ -362,7 +362,7 @@ class WebSocketService(BaseService):
         whatsapp_client: WhatsApp,
         platform_name: str = settings.CLIENT_NAME,
         websocket_url: str = settings.IKIGAI_WEBSOCKET_URL,
-        token: str = settings.IKGAI_SERVER_TOKEN,
+        token: str = settings.IKIGAI_API_KEY,
         connection_timeout: int = 10,
     ):
         super().__init__(whatsapp_client)
@@ -380,6 +380,7 @@ class WebSocketService(BaseService):
         if user_id not in self.connections:
             connection = await websockets.connect(
                 f"{self.websocket_url}/websocket/platform/{self.platform_name}/user/{user_id}",
+                additional_headers={"x-api-key": self.token},
                 close_timeout=self.connection_timeout,
             )
             self.connections[user_id] = connection

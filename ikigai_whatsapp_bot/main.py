@@ -34,14 +34,14 @@ websocket_service = WebSocketService(
     whatsapp_client=whatsapp,
     platform_name=settings.CLIENT_NAME,
     websocket_url=settings.IKIGAI_WEBSOCKET_URL,
-    token=settings.IKGAI_SERVER_TOKEN,
+    token=settings.IKIGAI_API_KEY,
 )
 
 api_service = APIService(
     whatsapp_client=whatsapp,
     platform_name=settings.CLIENT_NAME,
     api_url=settings.IKIGAI_API_URL,
-    token=settings.IKGAI_SERVER_TOKEN,
+    token=settings.IKIGAI_API_KEY,
 )
 
 
