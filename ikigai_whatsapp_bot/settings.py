@@ -1,14 +1,21 @@
 from pydantic_settings import BaseSettings
 
+from enums import ServerConnexions
+
 
 class Settings(BaseSettings):
     """Settings for the project."""
 
+    # General settings
+    EMPTY_MESSAGE_CONTENT: str = "_"
+    CLIENT_NAME: str = "whatsapp"
+    SERVER_CONNECTION: str = ServerConnexions.WEBSOCKET.value
+    QUEUE_TASK_TIMEOUT: int = 10
+
     # Ikigai API settings
     IKIGAI_API_URL: str = "http://ikigai-server:8000"
     IKIGAI_WEBSOCKET_URL: str = "ws://ikigai-server:8000"
-    IKIGAI_WEBSOCKET_PLATFORM_NAME: str = "whatsapp"
-    IKGAI_API_TOKEN: str
+    IKGAI_SERVER_TOKEN: str = "server-token"
 
     # HTTPX settings
     HTTPX_CLIENT_DEFAULT_TIMEOUT: int = 60

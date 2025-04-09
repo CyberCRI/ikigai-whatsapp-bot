@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import traceback
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -56,7 +56,9 @@ class BaseService(ABC):
         self.user_queues: Dict[str, asyncio.Queue] = {}
         self.user_tasks: Dict[str, asyncio.Task] = {}
 
-    async def _wait_for_message_to_be_sent(self, message: SentMessage, timeout: int = 10):
+    async def _wait_for_message_to_be_sent(
+        self, message: SentMessage, timeout: int = settings.QUEUE_TASK_TIMEOUT
+    ):
         """Wait for the message to be sent to avoid out of order messages."""
         await message._client.listen(  # pylint: disable=W0212
             to=message.recipient,
@@ -94,7 +96,9 @@ class BaseService(ABC):
             await self._wait_for_message_to_be_sent(sent_message)
             for i in range(3, len(buttons), 3):
                 buttons_chunk = buttons[i : i + 3]
-                await self._send_text(user_id, "___", buttons=buttons_chunk)
+                await self._send_text(
+                    user_id, settings.EMPTY_MESSAGE_CONTENT, buttons=buttons_chunk
+                )
         else:
             sent_message = await self.whatsapp_client.send_message(user_id, text, buttons=buttons)
             await self._wait_for_message_to_be_sent(sent_message)
@@ -114,7 +118,9 @@ class BaseService(ABC):
             await self._wait_for_message_to_be_sent(sent_image)
             for i in range(3, len(buttons), 3):
                 buttons_chunk = buttons[i : i + 3]
-                await self._send_text(user_id, "___", buttons=buttons_chunk)
+                await self._send_text(
+                    user_id, settings.EMPTY_MESSAGE_CONTENT, buttons=buttons_chunk
+                )
         else:
             sent_image = await self.whatsapp_client.send_image(
                 user_id, image, caption, buttons=buttons
@@ -129,14 +135,14 @@ class BaseService(ABC):
         await self._wait_for_message_to_be_sent(sent_sticker)
 
     async def _send_message_to_user(self, response: MessageResponse):
-        user = response.user.platform_ids[settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
-        content = response.message or ""
+        user = response.user.platform_ids[settings.CLIENT_NAME]
+        content = response.message or settings.EMPTY_MESSAGE_CONTENT
         if response.buttons or content:
             buttons = await self._create_buttons(response.buttons)
             await self._send_text(user, content, buttons)
 
     async def _send_image_to_user(self, response: ImageResponse):
-        user = response.user.platform_ids[settings.IKIGAI_WEBSOCKET_PLATFORM_NAME]
+        user = response.user.platform_ids[settings.CLIENT_NAME]
         image = response.image
         caption = response.caption
         buttons = await self._create_buttons(response.buttons)
@@ -263,81 +269,77 @@ class BaseService(ABC):
             },
         }
 
+    @abstractmethod
+    async def post_message_to_server(self, message: Message):
+        """
+        Serialize an incoming pywa_async.types.Message object and send it to the server.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def post_button_click_to_server(self, button_data: CallbackButton[ButtonData]):
+        """
+        Serialize an incoming pywa_async.types.CallbackButton object and send it to the server.
+        """
+        raise NotImplementedError
+
 
 class APIService(BaseService):
     """
     Client for interacting with the Ikigai API.
 
-    Args:
-        base_url (str): The base URL of the Ikigai API.
-        token (str): The API token for the Ikigai API.
+    Arguments:
+        whatsapp_client (WhatsApp): The WhatsApp client instance.
+        user_id (str): The user ID in Whatsapp.
+        api_url (str): The base URL of the Ikigai API endpoint.
+        token (str): The API token for authentication.
         verify_ssl (bool): Whether to verify SSL certificates.
-        timeout (int): The timeout for requests.
+        timeout (int): The timeout for HTTP requests.
     """
 
-    def __init__(  # pylint: disable=R0913, R0917
+    def __init__(
         self,
         whatsapp_client: WhatsApp,
-        base_url: str = settings.IKIGAI_API_URL,
-        token: str = settings.IKGAI_API_TOKEN,
+        platform_name: str = settings.CLIENT_NAME,
+        api_url: str = settings.IKIGAI_API_URL,
+        token: str = settings.IKGAI_SERVER_TOKEN,
         verify_ssl: bool = settings.HTTPX_CLIENT_VERIFY_SSL,
         timeout: int = settings.HTTPX_CLIENT_DEFAULT_TIMEOUT,
     ):
         """Initialize the APIClient."""
+        super().__init__(whatsapp_client)
+        self.platform_name = platform_name
+        self.api_url = api_url
         headers = {"Content-type": "application/json", "Authorization": f"Bearer {token}"}
         self.session = httpx.AsyncClient(headers=headers, verify=verify_ssl, timeout=timeout)
-        self.base_url = base_url
-        super().__init__(whatsapp_client)
 
     async def _request(self, method: str, path: str, **kwargs):
         """Make a request to the API and handle response errors."""
-        response = await self.session.request(method, f"{self.base_url}/{path}", **kwargs)
+        response = await self.session.request(method, f"{self.api_url}{path}", **kwargs)
         response.raise_for_status()
         return response.json()
-
-    async def get(self, path: str, **kwargs):
-        """Make a GET request to the API."""
-        return await self._request("GET", path, **kwargs)
 
     async def post(self, path: str, payload: Dict[str, Any], **kwargs):
         """Make a POST request to the API."""
         return await self._request("POST", path, json=payload, **kwargs)
 
-    async def put(self, path: str, payload: Dict[str, Any], **kwargs):
-        """Make a PUT request to the API."""
-        return await self._request("PUT", path, json=payload, **kwargs)
-
-    async def patch(self, path: str, payload: Dict[str, Any], **kwargs):
-        """Make a PATCH request to the API."""
-        return await self._request("PATCH", path, json=payload, **kwargs)
-
-    async def delete(self, path: str, **kwargs):
-        """Make a DELETE request to the API."""
-        return await self._request("DELETE", path, **kwargs)
-
-    async def post_message(self, message: Message) -> httpx.Response:
+    async def post_message_to_server(self, message: Message):
         """
-        Format and post a WhatsappMessage object to the API.
-
-        Args:
-            message (WhatsappMessage): The message to post.
-
-        Returns:
-            dict: The response from the API.
+        Serialize an incoming pywa_async.types.Message object and send it to the server via API.
         """
-        return await self.post("message", payload=self.serialize_message(message))
+        payload = self.serialize_message(message)
+        response = await self.post(f"/api/platform/{self.platform_name}", payload)
+        for task in response:
+            await self.add_response_to_queue(message.from_user.wa_id, task)
 
-    async def post_button(self, callback_data: Button) -> httpx.Response:
+    async def post_button_click_to_server(self, button_data: CallbackButton[ButtonData]):
         """
-        Format and post a Button object to the API.
-
-        Args:
-            callback_data (Button): The data to post.
-
-        Returns:
-            dict: The response from the API.
+        Serialize an incoming pywa_async.types.CallbackButton object and send it to the server via API.
         """
-        return await self.post("Button", payload=self.serialize_button_click(callback_data))
+        payload = self.serialize_button_click(button_data)
+        response = await self.post(f"/api/platform/{self.platform_name}", payload)
+        for task in response:
+            await self.add_response_to_queue(button_data.from_user.wa_id, task)
 
 
 class WebSocketService(BaseService):
@@ -353,23 +355,22 @@ class WebSocketService(BaseService):
         websocket_url (str): The base URL of the Ikigai WebSocket endpoint.
         platform_name (str): The name of the client (e.g., "whatsapp")
         connection_timeout (int): The timeout for WebSocket connections.
-
-    Methods:
-        send_message_to_server(message: Message): Send a message to the server via WebSocket.
     """
 
     def __init__(
         self,
         whatsapp_client: WhatsApp,
+        platform_name: str = settings.CLIENT_NAME,
         websocket_url: str = settings.IKIGAI_WEBSOCKET_URL,
-        platform_name: str = settings.IKIGAI_WEBSOCKET_PLATFORM_NAME,
+        token: str = settings.IKGAI_SERVER_TOKEN,
         connection_timeout: int = 10,
     ):
-        self.websocket_url = websocket_url
+        super().__init__(whatsapp_client)
         self.platform_name = platform_name
+        self.websocket_url = websocket_url
+        self.token = token
         self.connection_timeout = connection_timeout
         self.connections: Dict[str, websockets.connect] = {}
-        super().__init__(whatsapp_client)
 
     async def _get_or_create_connection(self, user_id: str) -> Tuple[websockets.connect, bool]:
         """

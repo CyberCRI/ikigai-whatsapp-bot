@@ -26,3 +26,10 @@ class ChannelTypes(str, Enum):
 
     DM = "dm"
     CHANNEL = "channel"
+
+
+class ServerConnexions(str, Enum):
+    """The types of server connexions."""
+
+    WEBSOCKET = "websocket"
+    API = "api"
