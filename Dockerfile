@@ -23,10 +23,13 @@ RUN groupadd -g 10000 app && \
 
 COPY --from=builder /tmp/requirements.txt .
 
+COPY devops-toolbox/scripts/secrets-entrypoint.sh secrets-entrypoint.sh
+
 RUN pip install -r requirements.txt
 
 COPY . .
 
 USER app
 
+ENTRYPOINT [ "./secrets-entrypoint.sh" ]
 CMD ["python", "./ikigai_whatsapp_bot/main.py"]

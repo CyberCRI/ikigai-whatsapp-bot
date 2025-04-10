@@ -1,0 +1,6 @@
+config:
+  nonSensitive:
+    IKIGAI_API_URL: https://ikigai-api.k8s.lp-i.dev
+    IKIGAI_WEBSOCKET_URL: ws://ikigai-api.k8s.lp-i.org
+    WHATSAPP_APP_ID: 1668776263994113
+    WHATSAPP_BOT_HOST: https://ikigai-wa.k8s.lp-i.org

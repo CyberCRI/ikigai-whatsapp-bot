@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    {{- (tpl ($.Values.commonLabels | toYaml ) $) | nindent 4 }}
+  name: {{ tpl .Values.fullName . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- (tpl ($.Values.commonLabels | toYaml ) $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- (tpl ($.Values.commonLabels | toYaml ) $) | nindent 8 }}
+      annotations: {{- include "common.config.checksum" (dict "filePath" "/config.yaml" "root" $)  | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "common.security.podSecurityContext.restricted" dict | nindent 8 }}
+      containers:
+      {{- with $.Values.image }}
+      - image: {{ tpl (printf "%s/%s:%s" .repository .path .tag) $ }}
+      {{- end }}
+        imagePullPolicy: IfNotPresent
+        name: ikigai-server
+        envFrom:
+        - configMapRef:
+            name: {{ tpl .Values.fullName . }}
+        securityContext:
+          {{- include "common.security.containerSecurityContext.restricted" dict | nindent 10 }}
+        resources: {{ toYaml .Values.resources | nindent 10 }}
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - ps -ef | grep "python ./ikigai_server/main.py" | grep -v grep
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - ps -ef | grep "python ./ikigai_server/main.py" | grep -v grep
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: logs
+          mountPath: "/app/logs"
+        - name: locales
+          mountPath: "/app/ikigai_server/locales"
+        - name: secrets
+          mountPath: "/secrets"
+          readOnly: true
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: locales
+        emptyDir: {}
+      - name: secrets
+        secret:
+          secretName: {{ tpl $.Values.fullName $ }}
