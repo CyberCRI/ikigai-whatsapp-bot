@@ -46,9 +46,6 @@ class BaseService(ABC):
         whatsapp_client (WhatsApp): The WhatsApp client instance.
         user_queues (Dict[str, Queue]): A dictionary mapping user IDs to their message queues.
         user_tasks (Dict[str, Task]): A dictionary mapping user IDs to their processing tasks.
-
-    Methods:
-
     """
 
     def __init__(self, whatsapp_client: WhatsApp):
@@ -168,7 +165,9 @@ class BaseService(ABC):
     async def _stop_typing(self, response: Dict[str, Any]):
         pass
 
-    async def _handle_response(self, action: str, content: Dict[str, Any]):
+    async def _handle_response(
+        self, action: ResponseTypes, content: Dict[str, Any]
+    ) -> ResponseTypes:
         match action:
             case ResponseTypes.MESSAGE.value:
                 content = MessageResponse(**content)
@@ -188,6 +187,7 @@ class BaseService(ABC):
             case ResponseTypes.STOP_TYPING.value:
                 content = TypingResponse(**content)
                 await self._stop_typing(content)
+        return action
 
     def _get_or_create_queue(self, user_id: str) -> asyncio.Queue:
         """
@@ -198,6 +198,14 @@ class BaseService(ABC):
             self.user_tasks[user_id] = asyncio.create_task(self._process_queue(user_id))
         return self.user_queues[user_id]
 
+    def _close_queue(self, user_id: str):
+        """
+        Close the queue for the specified user.
+        """
+        logger.info("Closing queue for user %s", user_id)
+        self.user_queues.pop(user_id, None)
+        self.user_tasks.pop(user_id, None)
+
     async def _process_queue(self, user_id: str):
         """
         Process the message queue for a specific user.
@@ -206,7 +214,10 @@ class BaseService(ABC):
         while True:
             task = await queue.get()
             try:
-                await self._handle_response(task["action"], task["content"])
+                event = await self._handle_response(task["action"], task["content"])
+                if event == ResponseTypes.STOP_PROCESS.value:
+                    self._close_queue(user_id)
+                    break
             except Exception:  # pylint: disable=W0718
                 logger.error("Failed to process task %s for user %s", task["action"], user_id)
                 logger.error(traceback.format_exc())
@@ -290,7 +301,7 @@ class APIService(BaseService):
 
     Arguments:
         whatsapp_client (WhatsApp): The WhatsApp client instance.
-        user_id (str): The user ID in Whatsapp.
+        platform_name (str): The name of the client (e.g., "whatsapp")
         api_url (str): The base URL of the Ikigai API endpoint.
         token (str): The API token for authentication.
         verify_ssl (bool): Whether to verify SSL certificates.
@@ -310,7 +321,7 @@ class APIService(BaseService):
         super().__init__(whatsapp_client)
         self.platform_name = platform_name
         self.api_url = api_url
-        headers = {"Content-type": "application/json", "x-api-key": token}
+        headers = {"Content-type": "application/json", settings.IKIGAI_API_KEY_HEADER_NAME: token}
         self.session = httpx.AsyncClient(headers=headers, verify=verify_ssl, timeout=timeout)
 
     async def _request(self, method: str, path: str, **kwargs):
@@ -325,7 +336,7 @@ class APIService(BaseService):
 
     async def post_message_to_server(self, message: Message):
         """
-        Serialize an incoming pywa_async.types.Message object and send it to the server via API.
+        Serialize an incoming message event and send it to the server via API.
         """
         payload = self.serialize_message(message)
         response = await self.post(f"/api/platform/{self.platform_name}", payload)
@@ -334,7 +345,7 @@ class APIService(BaseService):
 
     async def post_button_click_to_server(self, button_data: CallbackButton[ButtonData]):
         """
-        Serialize an incoming pywa_async.types.CallbackButton object and send it to the server via API.
+        Serialize an incoming button click event and send it to the server via API.
         """
         payload = self.serialize_button_click(button_data)
         response = await self.post(f"/api/platform/{self.platform_name}", payload)
@@ -352,8 +363,9 @@ class WebSocketService(BaseService):
 
     Arguments:
         whatsapp_client (WhatsApp): The WhatsApp client instance.
-        websocket_url (str): The base URL of the Ikigai WebSocket endpoint.
         platform_name (str): The name of the client (e.g., "whatsapp")
+        websocket_url (str): The base URL of the Ikigai WebSocket endpoint.
+        token (str): The API token for authentication.
         connection_timeout (int): The timeout for WebSocket connections.
     """
 
@@ -380,7 +392,7 @@ class WebSocketService(BaseService):
         if user_id not in self.connections:
             connection = await websockets.connect(
                 f"{self.websocket_url}/websocket/platform/{self.platform_name}/user/{user_id}",
-                additional_headers={"x-api-key": self.token},
+                additional_headers={settings.IKIGAI_API_KEY_HEADER_NAME: self.token},
                 close_timeout=self.connection_timeout,
             )
             self.connections[user_id] = connection
@@ -419,8 +431,7 @@ class WebSocketService(BaseService):
 
     async def post_message_to_server(self, message: Message, is_retry: bool = False):
         """
-        Serialize an incoming pywa_async.types.Message object and send it to the server via
-        WebSocket.
+        Serialize an incoming message event and send it to the server via WebSocket.
         """
         try:
             connection, _ = await self._get_or_create_connection(message.from_user.wa_id)
@@ -436,8 +447,7 @@ class WebSocketService(BaseService):
         self, button_data: CallbackButton[ButtonData], is_retry: bool = False
     ):
         """
-        Serialize an incoming pywa_async.types.CallbackButton object and send it to the server via
-        WebSocket.
+        Serialize an incoming button click event and send it to the server via WebSocket.
         """
         try:
             connection, _ = await self._get_or_create_connection(button_data.from_user.wa_id)
