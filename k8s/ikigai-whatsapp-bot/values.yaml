@@ -27,5 +27,5 @@ config:
   nonSensitive:
     CLIENT_NAME: whatsapp
     SERVER_CONNECTION: websocket
-    HTTPX_CLIENT_VERIFY_SSL: 0
-    WHATSAPP_API_VERSION: 21.0
+    HTTPX_CLIENT_VERIFY_SSL: "0"
+    WHATSAPP_API_VERSION: "21.0"
