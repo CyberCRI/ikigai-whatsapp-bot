@@ -64,6 +64,12 @@ async def on_callback_button(_: WhatsApp, button: CallbackButton[ButtonData]):
     else:
         raise ValueError(f"Invalid server connection type: {settings.SERVER_CONNECTION}")
 
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint.
+    """
+    return {"status": "ok"}
 
 if __name__ == "__main__":
     import uvicorn

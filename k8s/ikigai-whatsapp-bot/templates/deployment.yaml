@@ -26,6 +26,14 @@ spec:
         ports:
         - containerPort: {{ .Values.port }}
           name: http
+        livenessProbe:
+          httpGet:
+            port: http
+            path: /health
+        readinessProbe:
+          httpGet:
+            port: http
+            path: /health
         envFrom:
         - configMapRef:
             name: {{ tpl .Values.fullName . }}
