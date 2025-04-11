@@ -29,3 +29,8 @@ config:
     SERVER_CONNECTION: websocket
     HTTPX_CLIENT_VERIFY_SSL: "0"
     WHATSAPP_API_VERSION: "21.0"
+
+sablier:
+  enabled: false
+
+hostname: ikigai-wa.k8s.lp-i.dev

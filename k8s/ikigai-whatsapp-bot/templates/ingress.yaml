@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  labels:
+    {{- tpl (.Values.commonLabels  | toYaml | nindent 4 ) $ }}
+  name: {{ tpl .Values.fullName . }}
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    cert-manager.io/cluster-issuer: letsencrypt-prod-traefik
+    {{- $middlewares := .Values.ingressMiddlewares }}
+
+    {{- if .Values.sablier.enabled }}
+    {{- $middlewares = append $middlewares (tpl .Values.sablier.traefikMiddleware .) }}
+    {{- end }}
+
+    {{- if $middlewares }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ join "," $middlewares }}
+    {{- end }}
+spec:
+  rules:
+    - host: {{ .Values.hostname }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ tpl .Values.fullName . }}
+                port:
+                {{- /* Allow passing a boolean as a string, for applicationset */}}
+                {{- /* https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/GoTemplate/#limitations*/}}
+                  name: http
+  tls:
+    - hosts:
+        - {{.Values.hostname }}
+        # Required as cert is checked before www -> non-www redirect
+        # https://github.com/kubernetes/ingress-nginx/issues/2043
+        - {{ printf "www.%s" .Values.hostname }}
+      secretName: {{.Values.hostname }}-tls
