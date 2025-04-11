@@ -29,6 +29,7 @@ config:
     SERVER_CONNECTION: websocket
     HTTPX_CLIENT_VERIFY_SSL: "0"
     WHATSAPP_API_VERSION: "21.0"
+    IKIGAI_API_URL: http://ikigai-server
 
 sablier:
   enabled: false
