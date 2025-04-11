@@ -23,41 +23,20 @@ spec:
       {{- end }}
         imagePullPolicy: IfNotPresent
         name: ikigai-server
+        ports:
+        - containerPort: {{ .Values.port }}
+          name: http
         envFrom:
         - configMapRef:
             name: {{ tpl .Values.fullName . }}
         securityContext:
           {{- include "common.security.containerSecurityContext.restricted" dict | nindent 10 }}
         resources: {{ toYaml .Values.resources | nindent 10 }}
-        livenessProbe:
-          exec:
-            command:
-            - /bin/bash
-            - -c
-            - ps -ef | grep "python ./ikigai_server/main.py" | grep -v grep
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        readinessProbe:
-          exec:
-            command:
-            - /bin/bash
-            - -c
-            - ps -ef | grep "python ./ikigai_server/main.py" | grep -v grep
-          initialDelaySeconds: 5
-          periodSeconds: 10
         volumeMounts:
-        - name: logs
-          mountPath: "/app/logs"
-        - name: locales
-          mountPath: "/app/ikigai_server/locales"
         - name: secrets
           mountPath: "/secrets"
           readOnly: true
       volumes:
-      - name: logs
-        emptyDir: {}
-      - name: locales
-        emptyDir: {}
       - name: secrets
         secret:
           secretName: {{ tpl $.Values.fullName $ }}
