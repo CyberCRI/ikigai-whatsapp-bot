@@ -2,10 +2,12 @@ import logging
 
 from fastapi import FastAPI
 from pywa_async import WhatsApp
-from pywa_async.types import Message
+from pywa_async.types import CallbackButton, Message
 
 from __version__ import __version__
-from client import IkigaiAPIClient
+from enums import ServerConnexions
+from schemas import ButtonData
+from services import APIService, WebSocketService
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -28,29 +30,47 @@ whatsapp = WhatsApp(
     app_secret=settings.WHATSAPP_APP_SECRET,
 )
 
+websocket_service = WebSocketService(
+    whatsapp_client=whatsapp,
+    platform_name=settings.CLIENT_NAME,
+    websocket_url=settings.IKIGAI_WEBSOCKET_URL,
+    token=settings.IKIGAI_API_KEY,
+)
+
+api_service = APIService(
+    whatsapp_client=whatsapp,
+    platform_name=settings.CLIENT_NAME,
+    api_url=settings.IKIGAI_API_URL,
+    token=settings.IKIGAI_API_KEY,
+)
+
 
 @whatsapp.on_message
-async def on_message(client: WhatsApp, message: Message):
+async def on_message(_: WhatsApp, message: Message):
+    if settings.SERVER_CONNECTION == ServerConnexions.API.value:
+        await api_service.post_message_to_server(message)
+    elif settings.SERVER_CONNECTION == ServerConnexions.WEBSOCKET.value:
+        await websocket_service.post_message_to_server(message)
+    else:
+        raise ValueError(f"Invalid server connection type: {settings.SERVER_CONNECTION}")
+
+
+@whatsapp.on_callback_button(factory=ButtonData)
+async def on_callback_button(_: WhatsApp, button: CallbackButton[ButtonData]):
+    if settings.SERVER_CONNECTION == ServerConnexions.API.value:
+        await api_service.post_button_click_to_server(button)
+    elif settings.SERVER_CONNECTION == ServerConnexions.WEBSOCKET.value:
+        await websocket_service.post_button_click_to_server(button)
+    else:
+        raise ValueError(f"Invalid server connection type: {settings.SERVER_CONNECTION}")
+
+
+@app.get("/health")
+async def health_check():
     """
-    Handle incoming messages from WhatsApp.
-
-    Args:
-        client (WhatsApp): The WhatsApp client.
-        message (Message): The incoming message.
-
-    Returns:
-        dict: The response and status
+    Health check endpoint.
     """
-    ikigai_client = IkigaiAPIClient()
-    try:
-        response = await ikigai_client.post_message(message)
-        logger.info("Response from Ikigai API: %s", response)
-    except Exception as e:
-        logger.error("Error posting message to Ikigai API: %s", e)
-
-    # Just send back the message for testing purpose
-    await client.send_message(message.from_user.wa_id, message.text)
-    return {"status": "ok"}, 200
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":
