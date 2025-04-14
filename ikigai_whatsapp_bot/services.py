@@ -3,7 +3,7 @@ import json
 import logging
 import traceback
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
 import websockets
@@ -50,8 +50,29 @@ class BaseService(ABC):
 
     def __init__(self, whatsapp_client: WhatsApp):
         self.whatsapp_client = whatsapp_client
+        self.httpx_client = httpx.AsyncClient()
         self.user_queues: Dict[str, asyncio.Queue] = {}
         self.user_tasks: Dict[str, asyncio.Task] = {}
+        self.user_last_events: Dict[str, Union[Message, CallbackButton[ButtonData]]] = {}
+
+    async def _mark_event_as_seen(self, event: Union[Message, CallbackButton[ButtonData]]):
+        """
+        Mark the event as seen in the WhatsApp API.
+        """
+        self.user_last_events[event.from_user.wa_id] = event
+        await self.httpx_client.post(
+            f"https://graph.facebook.com/v{settings.WHATSAPP_API_VERSION}/"
+            f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages",
+            headers={
+                "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": event.id,
+            },
+        )
 
     async def _wait_for_message_to_be_sent(
         self, message: SentMessage, timeout: int = settings.QUEUE_TASK_TIMEOUT
@@ -159,10 +180,27 @@ class BaseService(ABC):
     async def _remove_role_from_user(self, response: Dict[str, Any]):
         pass
 
-    async def _start_typing(self, response: Dict[str, Any]):
-        pass
+    async def _start_typing(self, response: TypingResponse):
+        if response.user:
+            user_id = response.user.platform_ids[settings.CLIENT_NAME]
+            if user_id in self.user_last_events:
+                last_event = self.user_last_events[user_id]
+                await self.httpx_client.post(
+                    f"https://graph.facebook.com/v{settings.WHATSAPP_API_VERSION}/"
+                    f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages",
+                    headers={
+                        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "messaging_product": "whatsapp",
+                        "status": "read",
+                        "message_id": last_event.id,
+                        "typing_indicator": {"type": "text"},
+                    },
+                )
 
-    async def _stop_typing(self, response: Dict[str, Any]):
+    async def _stop_typing(self, response: TypingResponse):
         pass
 
     async def _handle_response(
@@ -338,6 +376,7 @@ class APIService(BaseService):
         """
         Serialize an incoming message event and send it to the server via API.
         """
+        await self._mark_event_as_seen(message)
         payload = self.serialize_message(message)
         response = await self.post(f"/api/platform/{self.platform_name}", payload)
         for task in response:
@@ -347,6 +386,7 @@ class APIService(BaseService):
         """
         Serialize an incoming button click event and send it to the server via API.
         """
+        await self._mark_event_as_seen(button_data)
         payload = self.serialize_button_click(button_data)
         response = await self.post(f"/api/platform/{self.platform_name}", payload)
         for task in response:
@@ -434,6 +474,7 @@ class WebSocketService(BaseService):
         Serialize an incoming message event and send it to the server via WebSocket.
         """
         try:
+            await self._mark_event_as_seen(message)
             connection, _ = await self._get_or_create_connection(message.from_user.wa_id)
             json_message = json.dumps(self.serialize_message(message))
             await connection.send(json_message)
@@ -450,6 +491,7 @@ class WebSocketService(BaseService):
         Serialize an incoming button click event and send it to the server via WebSocket.
         """
         try:
+            await self._mark_event_as_seen(button_data)
             connection, _ = await self._get_or_create_connection(button_data.from_user.wa_id)
             json_message = json.dumps(self.serialize_button_click(button_data))
             await connection.send(json_message)
