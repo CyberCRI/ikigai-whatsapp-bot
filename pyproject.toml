@@ -6,7 +6,7 @@ authors = ["Sam Onaisi <sam.onaisi@learningplanetinstitute.org>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "3.13"
+python = "^3.13"
 httpx = "^0.28.1"
 pydantic = "^2.10.4"
 pydantic-settings = "^2.7.0"
