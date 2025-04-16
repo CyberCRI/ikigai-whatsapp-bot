@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     HTTPX_CLIENT_VERIFY_SSL: bool = True
 
     # Whatsapp API
-    WHATSAPP_API_VERSION: float = 21.0
+    WHATSAPP_API_VERSION: float = 22.0
     WHATSAPP_APP_ID: str
     WHATSAPP_APP_SECRET: str
     WHATSAPP_BOT_HOST: str
