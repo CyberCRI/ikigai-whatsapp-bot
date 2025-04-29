@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Settings for the project."""
 
     # General settings
-    EMPTY_MESSAGE_CONTENT: str = "_"
+    EMPTY_MESSAGE_CONTENT: str = "‍"
     CLIENT_NAME: str = "whatsapp"
     SERVER_CONNECTION: str = ServerConnexions.WEBSOCKET.value
     QUEUE_TASK_TIMEOUT: int = 10
