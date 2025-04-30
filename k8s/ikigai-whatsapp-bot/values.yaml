@@ -30,6 +30,8 @@ config:
     HTTPX_CLIENT_VERIFY_SSL: "0"
     WHATSAPP_API_VERSION: "22.0"
     IKIGAI_API_URL: http://ikigai-server
+    WHATSAPP_BOT_HOST: '{{ printf "https://%s" .Values.hostname }}'
+    IKIGAI_WEBSOCKET_URL: ws://ikigai-server
 
 sablier:
   enabled: false
