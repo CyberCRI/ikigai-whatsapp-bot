@@ -1,0 +1,4 @@
+config:
+  nonSensitive:
+    WHATSAPP_APP_ID: "1668776263994113"
+hostname: ikigai-wa.k8s.lp-i.org

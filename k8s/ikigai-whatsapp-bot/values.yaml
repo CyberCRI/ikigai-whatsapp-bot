@@ -1,0 +1,39 @@
+fullName: ikigai-whatsapp-bot
+
+commonLabels:
+  app.kubernetes.io/name: ikigai-whatsapp-bot
+  app.kubernetes.io/component: ikigai-whatsapp-bot
+  app.kubernetes.io/part-of: ikigai
+  app.kubernetes.io/managed-by: helm
+  app.kubernetes.io/version: "{{ .Chart.AppVersion }}"
+
+image:
+  repository: criprodprod.azurecr.io
+  path: ikigai-whatsapp-bot
+  tag: "{{ .Values.application.revision }}"
+
+# adjust this
+resources:
+  limits:
+    memory: 100M
+  requests:
+    cpu: 10m
+    memory: 100M
+
+
+replicaCount: 1
+
+config:
+  nonSensitive:
+    CLIENT_NAME: whatsapp
+    SERVER_CONNECTION: websocket
+    HTTPX_CLIENT_VERIFY_SSL: "0"
+    WHATSAPP_API_VERSION: "22.0"
+    IKIGAI_API_URL: http://ikigai-server
+    WHATSAPP_BOT_HOST: '{{ printf "https://%s" .Values.hostname }}'
+    IKIGAI_WEBSOCKET_URL: ws://ikigai-server
+
+sablier:
+  enabled: false
+
+port: 8080
