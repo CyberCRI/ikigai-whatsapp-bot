@@ -34,5 +34,4 @@ config:
 sablier:
   enabled: false
 
-hostname: ikigai-wa.k8s.lp-i.dev
 port: 8080

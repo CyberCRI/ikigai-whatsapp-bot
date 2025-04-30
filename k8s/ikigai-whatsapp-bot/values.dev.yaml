@@ -3,3 +3,4 @@ config:
     IKIGAI_WEBSOCKET_URL: ws://ikigai-server
     WHATSAPP_APP_ID: "692774279877002"
     WHATSAPP_BOT_HOST: https://ikigai-wa.k8s.lp-i.dev
+hostname: ikigai-wa.k8s.lp-i.dev
