@@ -1,0 +1,9 @@
+{{ include "common.security.networkPolicy" (dict
+  "name" (tpl .Values.fullName .)
+  "root" .
+  "podSelector" (dict "matchLabels" .Values.commonLabels)
+  "allowFromReverseProxy" true
+  "reverseProxyNamespace" "traefik"
+  "commonLabels" .Values.commonLabels
+  "enableEgress" false
+) }}
